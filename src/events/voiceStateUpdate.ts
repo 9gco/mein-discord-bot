@@ -153,11 +153,10 @@ function describeMicProblem(result: MicCheckResult): string {
  * Vollständiger Prüf-Durchlauf für ein Mitglied:
  * Kanalrechte am Mitglied setzen → in den Prüf-Kanal ziehen → Ansage →
  * Mikrofon-Check (bis zu `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden →
- * Sprechrecht sperren und Rechte entfernen → Wartezeit bei Fehlschlag → aus dem
- * Call entfernen.
+ * Rechte entfernen → Wartezeit bei Fehlschlag → aus dem Call entfernen.
  *
- * Es gibt keine Prüf-Rolle. Das Sprechrecht hängt direkt an den Kanalrechten
- * des Mitglieds: an, wenn der Bot zum Sprechen auffordert, aus danach.
+ * Es gibt keine Prüf-Rolle, und das Sprechrecht wird nicht geschaltet: das
+ * Mitglied kann im Prüf-Kanal durchgehend reden.
  */
 async function runVerify(
   guild: Guild,
@@ -172,14 +171,13 @@ async function runVerify(
   }
 
   // 1) Kanalrechte zuerst: das Mitglied braucht Connect, bevor es in den Kanal
-  //    bewegt wird. Das Sprechrecht bleibt hier noch aus – es wird erst
-  //    freigeschaltet, wenn der Bot zum Sprechen auffordert.
-  //    Es gibt bewusst keine Rolle: die Rechte hängen direkt am Mitglied.
+  //    bewegt wird, und dauerhaft Sprechrecht. Das Sprechrecht wird nicht
+  //    geschaltet – das Mitglied kann durchgehend reden.
+  //    Es gibt keine Rolle: die Rechte hängen direkt am Mitglied.
   const reachable = await ensureMemberVerifyPermissions(
     guild,
     verifyChannelId,
     member.id,
-    false,
   );
   if (!reachable) {
     logger.warn(
@@ -249,8 +247,8 @@ async function runVerify(
         );
       }
 
-      // Erst zum Sprechen auffordern, dann das Sprechrecht freischalten. Vorher
-      // darf das Mitglied im Prüf-Kanal nur zuhören.
+      // Das Sprechrecht gilt dauerhaft, es wird nicht zu- und abgeschaltet.
+      // Der Bot sagt nur noch kurz Bescheid, ab wann es losgehen kann.
       await speak(
         guild,
         verifyChannelId,
@@ -259,25 +257,6 @@ async function runVerify(
         signal,
       );
       throwIfAborted(signal);
-      const armedForAttempt = await ensureMemberVerifyPermissions(
-        guild,
-        verifyChannelId,
-        member.id,
-        true,
-      );
-      if (!armedForAttempt) {
-        logger.error(
-          "Sprechrecht konnte nicht freigeschaltet werden – Abbruch. Im Log " +
-            "steht, welcher Baustein blockiert. Häufigste Ursache: @everyone " +
-            "verweigert im Prüf-Kanal 'Kanäle ansehen' oder 'Senden'.",
-          {
-            guildId: guild.id,
-            userId: member.id,
-            channelId: verifyChannelId,
-          },
-        );
-        break;
-      }
 
       // Kurz Luft lassen, damit der Nutzer direkt losreden kann. Hier bewusst
       // KEIN Warten auf Stille – sonst würde eine sofort begonnene Antwort
@@ -285,14 +264,6 @@ async function runVerify(
       // wartet von sich aus bis zu MIC_MAX_WAIT_MS auf den ersten Ton.
       await abortableDelay(MIC_START_DELAY_MS, signal);
       const result = await runMicCheck(connection, member.id, signal);
-
-      // Und direkt wieder stumm, bevor der Bot den Fehler erklärt.
-      await ensureMemberVerifyPermissions(
-        guild,
-        verifyChannelId,
-        member.id,
-        false,
-      );
 
       // Abbruch? Dann nichts mehr ansagen, der Durchlauf ist vorbei.
       if (result.reason === "aborted") return;
@@ -403,14 +374,9 @@ async function runVerify(
       });
     }
   } finally {
-    // 7) Sprechrecht wieder sperren und danach alle Kanalrechte des Mitglieds
-    //    entfernen, damit keine Reste im Prüf-Kanal zurückbleiben.
-    await ensureMemberVerifyPermissions(
-      guild,
-      verifyChannelId,
-      member.id,
-      false,
-    );
+    // 7) Alle Kanalrechte des Mitglieds wieder entfernen, damit keine Reste
+    //    im Prüf-Kanal zurückbleiben. Das Mitglied wird danach ohnehin
+    //    aus dem Call geholt.
     await clearMemberVerifyPermissions(guild, verifyChannelId, member.id);
     // Nickname immer zurücksetzen – auch bei Abbruch. Wer den Kanal
     // verlassen hat, darf nicht mit "(1) " dastehen bleiben.

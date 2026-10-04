@@ -327,16 +327,16 @@ export async function connectToVerifyChannel(
 }
 
 /**
- * Setzt die Kanalrechte eines Mitglieds im Prüf-Kanal. Es gibt bewusst keine
- * Prüf-Rolle: die Rechte hängen direkt am Mitglied und brauchen daher weder eine
- * Rolle noch eine Rollen-Hierarchie.
+ * Setzt die Kanalrechte eines Mitglieds im Prüf-Kanal. Das Sprechrecht ist
+ * **dauerhaft erlaubt**: das Mitglied kann im Prüf-Kanal durchgehend reden, der
+ * Bot schaltet es nicht mehr zu und ab.
  *
  * - `ViewChannel: true`   **muss** so sein. Discord trennt Mitglieder sofort
  *                         aus einem Voice-Kanal, dem sie View Channel
  *                         entziehen. Mit `false` wird das Mitglied beim Betreten
  *                         wieder rausgeworfen und kann nicht sprechen.
  * - `Connect: true`       hineinbewegen und verbunden bleiben
- * - `Speak: armed`        Sprechrecht nur während der Prüfung
+ * - `Speak: true`         dauerhaft erlaubt
  * - `Mute/Deafen/Move`    verweigert, damit niemand im Prüf-Kanal den Bot
  *                         stummschalten, tauben oder umziehen kann
  * - `Stream/Ping`         verweigert
@@ -346,10 +346,7 @@ export async function connectToVerifyChannel(
  * stehen. Dann sieht nur das Mitglied den Kanal, und das auch nur solange es
  * verbunden ist.
  *
- * `armed = true` schaltet das Sprechrecht frei, `armed = false` nimmt es wieder
- * weg. Nach der Prüfung werden die Rechte komplett vom Mitglied entfernt.
- *
- * Der Aufruf ist idempotent und kann deshalb bei jedem Start laufen.
+ * Der Aufruf ist idempotent und kann deshalb mehrfach laufen.
  *
  * Gibt false zurück, wenn der Bot keine Berechtigung dafür hat.
  */
@@ -357,8 +354,6 @@ export async function ensureMemberVerifyPermissions(
   guild: Guild,
   channelId: string,
   memberId: string,
-  armed: boolean,
-  blockingRoleId?: string,
 ): Promise<boolean> {
   const channel = guild.channels.cache.get(channelId);
   if (!channel?.isVoiceBased()) {
@@ -370,7 +365,7 @@ export async function ensureMemberVerifyPermissions(
   }
 
   // Eine alte Rollen-Override im Kanal würde das Member-Override aushebeln.
-  // Deshalb vor jedem Freischalten wegräumen. Die Rolle selbst bleibt.
+  // Deshalb vor dem Setzen wegräumen. Die Rolle selbst bleibt an den Mitgliedern.
   await cleanupLegacyMicRoleOverride(guild, channelId);
 
   try {
@@ -385,7 +380,7 @@ export async function ensureMemberVerifyPermissions(
         // `false` landet das Mitglied direkt wieder im Warteraum.
         ViewChannel: true,
         Connect: true,
-        Speak: armed,
+        Speak: true,
         SendMessages: false,
         Stream: false,
         // Niemand soll im Prüf-Kanal den Bot stummschalten, tauben oder
@@ -395,35 +390,19 @@ export async function ensureMemberVerifyPermissions(
         MoveMembers: false,
         MentionEveryone: false,
       },
-      {
-        reason: armed
-          ? "Verify: Sprechrecht für die Mikrofon-Prüfung freischalten"
-          : "Verify: Sprechrecht nach der Mikrofon-Prüfung wieder sperren",
-      },
+      { reason: "Verify: Sprechrecht im Prüf-Kanal erlauben" },
     );
 
     // Gegenprobe: hat Discord das Speak-Bit wirklich gesetzt? Ohne diese Prüfung
     // meldet Discord Erfolg, das Mitglied bleibt aber trotzdem stumm, wenn eine
     // andere Rolle das Bit weiterhin verweigert.
-    if (armed) {
-      await assertSpeakAllowed(
-        guild,
-        channelId,
-        memberId,
-        blockingRoleId ?? LEGACY_MIC_CHECK_ROLE_ID,
-      );
-    }
+    await assertSpeakAllowed(guild, channelId, memberId);
 
-    logger.info(
-      armed
-        ? "Sprechrecht für das Mitglied freigeschaltet."
-        : "Sprechrecht für das Mitglied wieder gesperrt.",
-      {
-        guildId: guild.id,
-        channelId,
-        userId: memberId,
-      },
-    );
+    logger.info("Kanalrechte gesetzt – Sprechrecht ist erlaubt.", {
+      guildId: guild.id,
+      channelId,
+      userId: memberId,
+    });
     return true;
   } catch (err) {
     logger.error(
@@ -433,7 +412,6 @@ export async function ensureMemberVerifyPermissions(
         guildId: guild.id,
         channelId,
         userId: memberId,
-        armed,
         error: err,
       },
     );
@@ -443,28 +421,31 @@ export async function ensureMemberVerifyPermissions(
 
 /**
  * Liest die Kanalrechte für ein Mitglied zurück und meldet, ob es tatsächlich
- * sprechen darf. View/Connect/Speak werden protokolliert, damit sich ein
- * stummes Mitglied sofort erklären lässt.
+ * sprechen darf. View/Connect/Speak und die Rollen des Mitglieds werden
+ * protokolliert, damit sich ein stummes Mitglied sofort erklären lässt.
  */
 async function assertSpeakAllowed(
   guild: Guild,
   channelId: string,
   memberId: string,
-  blockingRoleId?: string,
 ): Promise<void> {
   const member = guild.members.cache.get(memberId);
   if (!member) return;
   const perms = member.permissionsIn(channelId);
-  // Welche Rolle des Mitglieds verweigert aktuell das Sprechen? Das ist die
-  // häufigste Ursache, warum es trotz gesetztem Speak-Bit stumm bleibt.
-  const blockers: string[] = [];
-  if (blockingRoleId) {
-    const channel = guild.channels.cache.get(channelId);
-    const roleOverwrite = channel?.isVoiceBased()
-      ? channel.permissionOverwrites.cache.get(blockingRoleId)
-      : undefined;
-    if (roleOverwrite?.deny.has(PermissionFlagsBits.Speak)) blockers.push(blockingRoleId);
-  }
+  // Welche Rolle verweigert aktuell das Sprechen? Ein Rollen-Override mit
+  // "Senden: aus" gewinnt gegen das Member-Override und hält das Mitglied
+  // stumm - das ist die häufigste Ursache.
+  const channel = guild.channels.cache.get(channelId);
+  const blockingRoles = member.roles.cache
+    .filter(
+      (role) =>
+        channel?.isVoiceBased() &&
+        channel.permissionOverwrites.cache
+          .get(role.id)
+          ?.deny.has(PermissionFlagsBits.Speak),
+    )
+    .map((role) => role.id);
+
   logger.info("Sprechrecht geprüft.", {
     guildId: guild.id,
     channelId,
@@ -472,14 +453,13 @@ async function assertSpeakAllowed(
     viewChannel: perms.has(PermissionFlagsBits.ViewChannel),
     connect: perms.has(PermissionFlagsBits.Connect),
     speak: perms.has(PermissionFlagsBits.Speak),
-    blockingRoles: blockers,
-    roles: [...member.roles.cache.keys()],
+    blockingRoles,
   });
   if (!perms.has(PermissionFlagsBits.Speak)) {
     throw new Error(
       "Mitglied hat trotz gesetztem Speak-Bit kein Sprechrecht. Im Prüf-Kanal " +
-        "darf @everyone kein Sprechrecht verweigern und keine Rolle des " +
-        "Mitglieds (siehe blockingRoles im Log) das Sprechen verbieten.",
+        "darf @everyone kein Sprechrecht verweigern, und keine Rolle des " +
+        "Mitglieds (siehe blockingRoles im Log) darf 'Senden: aus' haben.",
     );
   }
 }
