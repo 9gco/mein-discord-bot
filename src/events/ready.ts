@@ -3,6 +3,7 @@ import { loadConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
 import {
   connectToVerifyChannel,
+  ensureMicRoleChannelPermissions,
   getVerifyConfig,
 } from "../utils/verify.js";
 import { resumeVerifyQueue } from "./voiceStateUpdate.js";
@@ -21,6 +22,13 @@ async function autoJoinVerifyChannels(client: Client<true>): Promise<void> {
         guildId: guild.id,
         channelId: cfg.channelId,
       });
+      // Rechte der Prüf-Rolle im Kanal auffrischen, damit Mitglieder während
+      // der Prüfung sprechen dürfen. Ohne das schlägt der Mic-Check still fehl.
+      await ensureMicRoleChannelPermissions(
+        guild,
+        cfg.channelId,
+        cfg.micRoleId,
+      );
     } catch (err) {
       logger.error("Auto-Join in den Verify-Kanal fehlgeschlagen.", {
         guildId: guild.id,

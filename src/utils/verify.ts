@@ -261,6 +261,71 @@ export async function connectToVerifyChannel(
 }
 
 /**
+ * Setzt die Kanalrechte der Prüf-Rolle im Prüf-Kanal so, dass ein Mitglied
+ * während der Prüfung sprechen kann – aber sonst nichts:
+ *
+ * - darf rein und reden
+ * - darf niemanden stummschalten oder tauben
+ * - darf niemanden verschieben oder den Server anpingen
+ *
+ * Weil die Rolle nach der Prüfung wieder entfernt wird, ist das Sprechrecht
+ * danach automatisch wieder weg. Der Aufruf ist idempotent und kann deshalb
+ * bei jedem Start laufen.
+ *
+ * Gibt false zurück, wenn der Bot keine Berechtigung dafür hat.
+ */
+export async function ensureMicRoleChannelPermissions(
+  guild: Guild,
+  channelId: string,
+  micRoleId: string,
+): Promise<boolean> {
+  const channel = guild.channels.cache.get(channelId);
+  if (!channel?.isVoiceBased()) {
+    logger.error("Prüf-Kanal nicht gefunden – Kanalrechte nicht setzbar.", {
+      guildId: guild.id,
+      channelId,
+    });
+    return false;
+  }
+
+  try {
+    await channel.permissionOverwrites.edit(
+      micRoleId,
+      {
+        ViewChannel: true,
+        SendMessages: false,
+        Connect: true,
+        Speak: true,
+        Stream: false,
+        MuteMembers: true,
+        DeafenMembers: true,
+        MoveMembers: false,
+        MentionEveryone: false,
+      },
+      { reason: "Verify: Sprechrecht nur während der Mikrofon-Prüfung" },
+    );
+    logger.info("Kanalrechte der Prüf-Rolle gesetzt.", {
+      guildId: guild.id,
+      channelId,
+      roleId: micRoleId,
+    });
+    return true;
+  } catch (err) {
+    logger.error(
+      "Kanalrechte der Prüf-Rolle konnten nicht gesetzt werden – der Bot " +
+        "braucht 'Manage Channels' und die Rolle muss unter seiner höchsten Rolle liegen.",
+      {
+        guildId: guild.id,
+        channelId,
+        roleId: micRoleId,
+        error: err,
+      },
+    );
+    return false;
+  }
+}
+
+/**
  * Spielt einen Audio-Puffer über die bestehende Verbindung ab und wartet bis
  * zum Ende. Der Notausstieg richtet sich nach der Länge des Audios, damit
  * lange Ansagen nicht abgeschnitten werden.
@@ -350,48 +415,121 @@ export function runExclusive(
 // ---------------------------------------------------------------------------
 
 /** Mindest-Sprechdauer, damit ein Versuch als "geredet" gilt. */
-const MIC_MIN_SPEECH_MS = 700;
+const MIC_MIN_SPEECH_MS = 800;
 /** Ab diesem RMS-Pegel gilt ein Frame als "da ist Sprache" (Stille-Rauschen liegt darunter). */
-const MIC_SPEECH_FLOOR = 0.004;
+const MIC_SPEECH_FLOOR = 0.006;
 /** Mindest-Durchschnittspegel (RMS, 0..1) — darunter gilt das Mikrofon als zu leise. */
-const MIC_MIN_LEVEL = 0.012;
+const MIC_MIN_LEVEL = 0.03;
+/** Ab diesem Spitzenwert gilt das Signal als übersteuert. */
+const MIC_CLIP_PEAK = 0.97;
+/** Sprache muss mindestens so viel lauter sein wie der Rauschboden (Faktor ≈ +12 dB). */
+const MIC_MIN_SNR = 4;
+/** Wie viele Stille-Frames wir mindestens brauchen, um den Rauschboden zu schätzen. */
+const MIC_MIN_NOISE_FRAMES = 5;
 /** Wie lange auf Sprache gewartet wird, bevor der Check als "nichts gehört" endet. */
 const MIC_MAX_WAIT_MS = 45_000;
 /** Opus-Abtastrate und Framegröße für Discord-Voice (20 ms). */
 const OPUS_RATE = 48_000;
 const OPUS_FRAME_MS = 20;
 
+export type MicCheckReason =
+  | "no_speech"
+  | "too_short"
+  | "too_quiet"
+  | "clipping"
+  | "noisy"
+  | "error";
+
 export interface MicCheckResult {
   /** true = Mikrofon brauchbar, Verifizierung darf weiterlaufen. */
   ok: boolean;
   /** Grund für ein Scheitern, nur gesetzt wenn ok === false. */
-  reason?: "no_speech" | "too_quiet" | "error";
+  reason?: MicCheckReason;
   /** Gemessene Sprechzeit in Millisekunden. */
   speechMs: number;
-  /** Gemessener mittlerer Pegel (0..1). */
+  /** Gemessener mittlerer Sprechpegel (0..1). */
   level: number;
+  /** Höchster Spitzenwert im Signal (0..1), 1 = voll aufgedreht. */
+  peak: number;
+  /** Verhältnis Sprechpegel zu Rauschboden. */
+  snr: number;
+}
+
+/** Rohwerte, die `judgeMicMeasurement` bewertet. */
+export interface MicMeasurement {
+  /** Gemessene Sprechzeit in Millisekunden. */
+  speechMs: number;
+  /** Mittlerer Pegel der Sprachframes (0..1). */
+  level: number;
+  /** Höchster Spitzenwert der Sprachframes (0..1). */
+  peak: number;
+  /** Verhältnis Sprechpegel zu Rauschboden, 0 wenn nicht schätzbar. */
+  snr: number;
+  /** true, wenn der Rauschboden aus genug Stille-Frames geschätzt wurde. */
+  noiseKnown: boolean;
+  /** false, wenn ohne Opus-Decoder nur die Sprechdauer gemessen wurde. */
+  hasLevels: boolean;
 }
 
 /**
- * RMS-Pegel eines Opus-Pakets. Discord liefert Opus, `opusscript` dekodiert zu
- * PCM; daraus wird der mittlere Betrag gebildet. Fehler (z. B. fehlendes
- * WASM) liefern 0, dann greift der Pegel-Check nicht als "leer".
+ * Bewertet eine Messung. Reihenfolge ist bewusst: erst muss überhaupt etwas
+ * Brauchbares angekommen sein, danach erst Qualitätskriterien – sonst würde ein
+ * stummes Mikrofon als "übersteuert" gemeldet.
+ *
+ * Reihenfolge: kein Ton → zu kurz → keine Pegeldaten → übersteuert →
+ * zu leise → zu verrauscht → bestanden.
  */
-function measureLevel(decoder: OpusScript | undefined, packet: Buffer): number {
-  if (!decoder) return 0;
+export function judgeMicMeasurement(
+  m: MicMeasurement,
+): MicCheckReason | "ok" {
+  if (m.speechMs === 0) return "no_speech";
+  if (m.speechMs < MIC_MIN_SPEECH_MS) return "too_short";
+  // Ohne Decoder gibt es keine Pegelmessung – dann zählt nur die Sprechdauer.
+  if (!m.hasLevels) return "ok";
+  if (m.peak >= MIC_CLIP_PEAK) return "clipping";
+  if (m.level < MIC_MIN_LEVEL) return "too_quiet";
+  if (m.noiseKnown && m.snr < MIC_MIN_SNR) return "noisy";
+  return "ok";
+}
+
+/** Pegel eines Opus-Pakets: RMS (Lautstärke) und Spitzenwert (Clipping). */
+interface FrameLevel {
+  /** Mittlerer Betrag des Signals, 0..1. */
+  rms: number;
+  /** Größter Einzelwert, 0..1. Nahe 1 heißt übersteuert. */
+  peak: number;
+}
+
+const SILENT_FRAME: FrameLevel = { rms: 0, peak: 0 };
+
+/**
+ * Pegel eines Opus-Pakets. Discord liefert Opus, `opusscript` dekodiert zu
+ * PCM; daraus werden RMS und Spitzenwert gebildet. Fehler (z. B. fehlendes
+ * WASM) liefern ein stummes Frame, dann greift der Pegel-Check als "leer".
+ */
+function measureFrame(
+  decoder: OpusScript | undefined,
+  packet: Buffer,
+): FrameLevel {
+  if (!decoder) return SILENT_FRAME;
   try {
     const pcm = decoder.decode(packet);
-    if (!pcm || pcm.length === 0) return 0;
+    if (!pcm || pcm.length === 0) return SILENT_FRAME;
     let sum = 0;
+    let peak = 0;
     let samples = 0;
     for (let i = 0; i + 1 < pcm.length; i += 2) {
-      const sample = pcm.readInt16LE(i) / 32768;
+      const sample = Math.abs(pcm.readInt16LE(i) / 32768);
       sum += sample * sample;
+      if (sample > peak) peak = sample;
       samples++;
     }
-    return samples > 0 ? Math.sqrt(sum / samples) : 0;
+    return {
+      rms: samples > 0 ? Math.sqrt(sum / samples) : 0,
+      peak,
+    };
   } catch {
-    return 0;
+    return SILENT_FRAME;
   }
 }
 
@@ -449,12 +587,16 @@ export function waitForSilence(
 
 /**
  * Nimmt die Stimme eines Mitglieds über den Voice-Receiver auf und bewertet,
- * ob das Mikrofon brauchbar ist: es muss hörbar sprechen (Pegel über
- * `MIC_MIN_LEVEL`) und insgesamt mindestens `MIC_MIN_SPEECH_MS` lang reden.
+ * ob das Mikrofon brauchbar ist. Geprüft wird in dieser Reihenfolge:
  *
- * Der Check endet nach einer kurzen Stille nach der ersten Sprachphase. Wer
- * gar nichts aufnimmt, wartet bis `MIC_MAX_WAIT_MS` und wird dann als
- * "no_speech" gemeldet.
+ * 1. `no_speech`  – in `MIC_MAX_WAIT_MS` kam kein verwertbarer Ton
+ * 2. `too_short`  – zu wenig Sprechzeit zum Beurteilen
+ * 3. `clipping`   – Signal übersteuert (Gain zu hoch)
+ * 4. `too_quiet`  – Sprechpegel unter `MIC_MIN_LEVEL`
+ * 5. `noisy`      – Sprache hebt sich kaum vom Rauschboden ab
+ *
+ * Der Check endet nach einer kurzen Stille nach der Sprachphase. Wer gar
+ * nichts aufnimmt, wartet bis `MIC_MAX_WAIT_MS`.
  */
 export function runMicCheck(
   connection: VoiceConnection,
@@ -472,28 +614,67 @@ export function runMicCheck(
     }
 
 let settled = false;
-    /** Frames, in denen wirklich etwas hörbar war (über MIC_SPEECH_FLOOR). */
+    /** Frames, die als Sprache gewertet wurden – Pegelsumme und Spitzenwert. */
     let voiceFrames = 0;
     let levelSum = 0;
-    /** Fallback ohne Decoder: Sprechzeit über die Speaking-Events. */
-    let fallbackSpeechMs = 0;
-    let fallbackTimer: NodeJS.Timeout | undefined;
+    /** Höchster Spitzenwert über alle Sprachframes – für die Clipping-Prüfung. */
+    let peakMax = 0;
+    /** Frames, die als Rauschen gewertet wurden – Grundlage des Rauschbodens. */
+    let noiseFrames = 0;
+    let noiseSum = 0;
+    /** Alle Frame-Pegel, für die Neuberechnung, falls die Speaking-Events fehlen. */
+    const frameLevels: number[] = [];
+    const framePeaks: number[] = [];
+    /** Discord meldet zuverlässig, wann das Mitglied wirklich sendet. */
+    let isSpeaking = false;
+    let sawSpeakingEvent = false;
     let silentTimer: NodeJS.Timeout | undefined;
     let hardTimeout: NodeJS.Timeout | undefined;
     /** Zusätzliche Abmeldungen, die beim Beenden des Checks ausgeführt werden. */
     const detachers: Array<() => void> = [];
 
-    const speechMs = (): number =>
-      decoder ? voiceFrames * OPUS_FRAME_MS : fallbackSpeechMs;
+    const speechMs = (): number => voiceFrames * OPUS_FRAME_MS;
 
     const level = (): number => (voiceFrames > 0 ? levelSum / voiceFrames : 0);
+
+    const snr = (): number => {
+      if (noiseFrames < MIC_MIN_NOISE_FRAMES || voiceFrames === 0) return 0;
+      const noise = noiseSum / noiseFrames;
+      // Rauschboden nahe 0 → Verhältnis ist unendlich groß, das ist in Ordnung.
+      if (noise <= 0) return Number.POSITIVE_INFINITY;
+      return level() / noise;
+    };
+
+    /**
+     * Ohne Speaking-Events lässt sich Sprache nicht von dauerhaftem
+     * Hintergrundrauschen trennen. In dem Fall wird ersatzweise am Pegel
+     * unterschieden – ungenauer, aber besser als ein Fehlschlag für alle.
+     */
+    const reclassifyByLevel = (): void => {
+      voiceFrames = 0;
+      levelSum = 0;
+      peakMax = 0;
+      noiseFrames = 0;
+      noiseSum = 0;
+      for (let i = 0; i < frameLevels.length; i++) {
+        const rms = frameLevels[i] ?? 0;
+        if (rms >= MIC_SPEECH_FLOOR) {
+          voiceFrames++;
+          levelSum += rms;
+          const peak = framePeaks[i] ?? 0;
+          if (peak > peakMax) peakMax = peak;
+        } else {
+          noiseFrames++;
+          noiseSum += rms;
+        }
+      }
+    };
 
     const finish = (outcome: MicCheckResult): void => {
       if (settled) return;
       settled = true;
       if (silentTimer) clearTimeout(silentTimer);
       if (hardTimeout) clearTimeout(hardTimeout);
-      if (fallbackTimer) clearInterval(fallbackTimer);
       for (const detach of detachers) {
         try {
           detach();
@@ -516,17 +697,31 @@ let settled = false;
 
     // Auswertung: erst Bewertung, dann finish(), weil finish() die Werte liest.
     const evaluate = (): void => {
-      const ms = speechMs();
-      const lvl = level();
-      if (ms < MIC_MIN_SPEECH_MS) {
-        finish({ ok: false, reason: "no_speech", speechMs: ms, level: lvl });
-        return;
+      // Speaking-Events vorhanden? Wenn nicht, auf reine Pegelbewertung zurückfallen.
+      if (!sawSpeakingEvent && frameLevels.length >= MIC_MIN_NOISE_FRAMES * 2) {
+        reclassifyByLevel();
       }
-      if (decoder && lvl < MIC_MIN_LEVEL) {
-        finish({ ok: false, reason: "too_quiet", speechMs: ms, level: lvl });
-        return;
+
+      const metrics = {
+        speechMs: speechMs(),
+        level: level(),
+        peak: peakMax,
+        snr: snr(),
+      };
+      const verdict = judgeMicMeasurement({
+        speechMs: metrics.speechMs,
+        level: metrics.level,
+        peak: metrics.peak,
+        snr: metrics.snr,
+        noiseKnown: noiseFrames >= MIC_MIN_NOISE_FRAMES,
+        hasLevels: decoder !== undefined,
+      });
+
+      if (verdict === "ok") {
+        finish({ ok: true, ...metrics });
+      } else {
+        finish({ ok: false, reason: verdict, ...metrics });
       }
-      finish({ ok: true, speechMs: ms, level: lvl });
     };
 
     const restartSilenceTimer = (): void => {
@@ -543,16 +738,45 @@ let settled = false;
 
     hardTimeout = setTimeout(evaluate, MIC_MAX_WAIT_MS);
 
+    // Speaking-Events sind die verlässlichste Trennung zwischen Sprache und
+    // Rauschen – der Pegel allein reicht bei laufendem Hintergrund nicht.
+    const speaking = connection.receiver.speaking;
+    const onSpeakStart = (userId: string): void => {
+      if (userId !== memberId) return;
+      isSpeaking = true;
+      sawSpeakingEvent = true;
+      // Erstes Hören beendet das Warten auf eine Maximaldauer.
+      if (hardTimeout) clearTimeout(hardTimeout);
+    };
+    const onSpeakEnd = (userId: string): void => {
+      if (userId !== memberId) return;
+      isSpeaking = false;
+      restartSilenceTimer();
+    };
+    speaking.on("start", onSpeakStart);
+    speaking.on("end", onSpeakEnd);
+    detachers.push(() => {
+      speaking.off("start", onSpeakStart);
+      speaking.off("end", onSpeakEnd);
+    });
+
     subscription.on("data", (packet: Buffer) => {
       if (settled || packet.length === 0) return;
-      const lvl = measureLevel(decoder, packet);
-      if (lvl >= MIC_SPEECH_FLOOR) {
+      const { rms, peak } = measureFrame(decoder, packet);
+      frameLevels.push(rms);
+      framePeaks.push(peak);
+
+      if (isSpeaking && rms >= MIC_SPEECH_FLOOR) {
         voiceFrames++;
-        levelSum += lvl;
-        // Erstes Hören beendet das Warten auf eine Maximaldauer.
-        if (hardTimeout) clearTimeout(hardTimeout);
+        levelSum += rms;
+        if (peak > peakMax) peakMax = peak;
+      } else {
+        noiseFrames++;
+        noiseSum += rms;
       }
-      restartSilenceTimer();
+
+      // Solange gesendet wird, läuft die Zeit weiter.
+      if (isSpeaking) restartSilenceTimer();
     });
 
     subscription.once("end", () => {
@@ -565,35 +789,8 @@ let settled = false;
         userId: memberId,
         error: err,
       });
-      finish({ ok: false, reason: "error", speechMs: 0, level: 0 });
+      finish({ ok: false, reason: "error", speechMs: 0, level: 0, peak: 0, snr: 0 });
     });
-
-    // Ohne Decoder können wir den Pegel nicht messen, aber Discord meldet
-    // weiterhin zuverlässig, wann jemand spricht.
-    if (!decoder) {
-      const speaking = connection.receiver.speaking;
-      const onStart = (userId: string): void => {
-        if (settled || userId !== memberId) return;
-        if (hardTimeout) clearTimeout(hardTimeout);
-        if (fallbackTimer) clearInterval(fallbackTimer);
-        fallbackTimer = setInterval(() => {
-          fallbackSpeechMs += 100;
-        }, 100);
-        restartSilenceTimer();
-      };
-      const onEnd = (userId: string): void => {
-        if (settled || userId !== memberId) return;
-        if (fallbackTimer) clearInterval(fallbackTimer);
-        fallbackTimer = undefined;
-        restartSilenceTimer();
-      };
-      speaking.on("start", onStart);
-      speaking.on("end", onEnd);
-      detachers.push(() => {
-        speaking.off("start", onStart);
-        speaking.off("end", onEnd);
-      });
-    }
   });
 }
 

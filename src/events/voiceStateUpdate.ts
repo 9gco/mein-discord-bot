@@ -22,6 +22,7 @@ import {
   stripQueueNickname,
   waitForSilence,
   WAITING_CHANNEL_ID,
+  type MicCheckResult,
   type VerifyConfig,
 } from "../utils/verify.js";
 import type { BotEvent } from "./index.js";
@@ -107,6 +108,40 @@ async function releaseQueueSlot(guild: Guild, member: GuildMember): Promise<void
   dequeueWaiting(guild.id, member.id);
   await stripQueueNickname(guild, member.id);
   await renumberWaiting(guild);
+}
+
+/**
+ * Übersetzt ein Messergebnis in einen Satz, den der Bot vorlesen kann. Der Text
+ * nennt den konkreten Grund, damit das Mitglied weiß, was es ändern muss.
+ */
+function describeMicProblem(result: MicCheckResult): string {
+  switch (result.reason) {
+    case "no_speech":
+      return "Ich habe aus deinem Mikrofon überhaupt keinen Ton bekommen.";
+    case "too_short":
+      return (
+        `Ich habe nur ${Math.round(result.speechMs / 100) / 10} Sekunden ` +
+        "Sprache bekommen – das ist zu wenig zum Beurteilen."
+      );
+    case "clipping":
+      return (
+        "Dein Mikrofon ist übersteuert, es knackt und verzerrt. " +
+        "Drehe die Eingabelautstärke oder den Mikrofon-Gain etwas runder."
+      );
+    case "noisy":
+      return (
+        "Bei dir ist sehr viel Hintergrundrauschen, ich kann dich kaum " +
+        "von anderen Geräuschen unterscheiden."
+      );
+    case "too_quiet":
+      return (
+        "Dein Mikrofon ist zu leise – ich habe zwar gehört, dass du da bist, " +
+        "aber nicht, was du sagst."
+      );
+    case "error":
+    default:
+      return "Bei der Prüfung ist ein technischer Fehler aufgetreten.";
+  }
 }
 
 /**
@@ -202,22 +237,22 @@ async function runVerify(
         }
       }
     } else {
-      // 6b) Mikrofon unbrauchbar: sagen, woran es liegt, und nichts freischalten.
-      const reason =
-        result.reason === "too_quiet"
-          ? "Dein Mikrofon ist zu leise – ich habe zwar etwas gehört, es ist aber kaum verständlich."
-          : "Ich habe aus deinem Mikrofon keinen Ton bekommen.";
+      // 6b) Mikrofon unbrauchbar: genau sagen, was gemessen wurde, und
+      //     nichts freischalten.
       logger.info("Mikrofon-Check fehlgeschlagen.", {
         guildId: guild.id,
         userId: member.id,
         reason: result.reason,
         speechMs: result.speechMs,
         level: result.level,
+        peak: result.peak,
+        snr: result.snr,
       });
+      const problem = describeMicProblem(result);
       await speak(
         guild,
         verifyChannelId,
-        `${reason} ${cfg.micFailedMessage.replace(/\{user\}/g, name)}`,
+        `${problem} ${cfg.micFailedMessage.replace(/\{user\}/g, name)}`,
         cfg.voice,
       );
     }

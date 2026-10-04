@@ -66,3 +66,75 @@ describe("Namensnummern", () => {
     expect(verify.spokenName("(1)  Foxtrot")).toBe("Foxtrot");
   });
 });
+
+describe("Mikrofon-Bewertung", () => {
+  const good = {
+    speechMs: 3000,
+    level: 0.08,
+    peak: 0.6,
+    snr: 20,
+    noiseKnown: true,
+    hasLevels: true,
+  };
+
+  it("lässt ein gesundes Mikrofon durch", () => {
+    expect(verify.judgeMicMeasurement(good)).toBe("ok");
+  });
+
+  it("meldet Stummgabe", () => {
+    expect(verify.judgeMicMeasurement({ ...good, speechMs: 0 })).toBe(
+      "no_speech",
+    );
+  });
+
+  it("meldet zu kurzes Sprechen", () => {
+    expect(verify.judgeMicMeasurement({ ...good, speechMs: 400 })).toBe(
+      "too_short",
+    );
+  });
+
+  it("meldet zu leises Sprechen", () => {
+    expect(verify.judgeMicMeasurement({ ...good, level: 0.02 })).toBe(
+      "too_quiet",
+    );
+  });
+
+  it("meldet übersteuerte Mikrofone", () => {
+    expect(verify.judgeMicMeasurement({ ...good, peak: 0.99 })).toBe(
+      "clipping",
+    );
+  });
+
+  it("meldet verrauschte Mikrofone", () => {
+    expect(verify.judgeMicMeasurement({ ...good, snr: 2 })).toBe("noisy");
+  });
+
+  it("übersieht verrauschte Stimmen ohne Rauschschätzung", () => {
+    // Ohne genug Stille-Frames lässt sich der Rauschboden nicht schätzen.
+    expect(verify.judgeMicMeasurement({ ...good, snr: 0, noiseKnown: false })).toBe(
+      "ok",
+    );
+  });
+
+  it("bewertet ohne Pegelmessung nur die Sprechdauer", () => {
+    expect(
+      verify.judgeMicMeasurement({ ...good, hasLevels: false, peak: 0, level: 0 }),
+    ).toBe("ok");
+    expect(
+      verify.judgeMicMeasurement({
+        ...good,
+        hasLevels: false,
+        peak: 0,
+        level: 0,
+        speechMs: 200,
+      }),
+    ).toBe("too_short");
+  });
+
+  it("meldet Stummgabe vor Übersteuerung", () => {
+    // Sonst würde ein stummes Mikrofon als 'clipping' durchfallen.
+    expect(verify.judgeMicMeasurement({ ...good, speechMs: 0, peak: 1 })).toBe(
+      "no_speech",
+    );
+  });
+});
