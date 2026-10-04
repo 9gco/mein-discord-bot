@@ -261,17 +261,20 @@ export async function connectToVerifyChannel(
 }
 
 /**
- * Setzt die Kanalrechte der Prüf-Rolle im Prüf-Kanal so, dass ein Mitglied
- * während der Prüfung sprechen kann – aber sonst nichts:
+ * Setzt die Kanalrechte der Prüf-Rolle im Prüf-Kanal. Die Rolle steuert
+ * ausschließlich das Sprechrecht – Sichtbarkeit und Verbinden kommen bewusst
+ * aus den Discord-Kanalrechten und werden hier nicht angefasst:
  *
- * - darf rein und reden
- * - darf niemanden stummschalten oder tauben
- * - darf niemanden verschieben oder den Server anpingen
+ * - `Speak: true`      während der Prüfung darf gesprochen werden
+ * - `Speak: null`      danach wieder erben, also kein Sonderrecht mehr
+ * - `Mute/Deafen`      bleiben gesetzt, damit niemand im Prüf-Kanal andere
+ *                      stummschalten oder tauben kann
+ * - `ViewChannel/Connect: null`  ausdrücklich auf "erben" – die Rolle macht
+ *                      den Kanal weder sichtbar noch betretbar
+ * - `Move/Stream/Ping` verweigert
  *
- * `armed = true` schaltet das Sprechrecht frei, `armed = false` sperrt es
- * wieder. Die Rolle selbst bleibt beim Mitglied stehen – abgesichert wird über
- * die Kanalrechte. Nach der Prüfung wird also `false` gesetzt, wodurch das
- * Sprechrecht automatisch wieder weg ist, ohne dass die Rolle verschwindet.
+ * `armed = true` schaltet das Sprechrecht frei, `armed = false` nimmt es wieder
+ * weg. Die Rolle selbst bleibt dauerhaft am Mitglied.
  *
  * Der Aufruf ist idempotent und kann deshalb bei jedem Start laufen.
  *
@@ -296,8 +299,9 @@ export async function ensureMicRoleChannelPermissions(
     await channel.permissionOverwrites.edit(
       micRoleId,
       {
-        ViewChannel: armed,
-        Connect: armed,
+        // null = "erben": die Rolle macht den Kanal nicht sichtbar.
+        ViewChannel: null,
+        Connect: null,
         Speak: armed,
         SendMessages: false,
         Stream: false,
@@ -316,8 +320,8 @@ export async function ensureMicRoleChannelPermissions(
     );
     logger.info(
       armed
-        ? "Kanalrechte der Prüf-Rolle freigeschaltet."
-        : "Kanalrechte der Prüf-Rolle wieder gesperrt.",
+        ? "Sprechrecht der Prüf-Rolle freigeschaltet."
+        : "Sprechrecht der Prüf-Rolle wieder gesperrt.",
       {
         guildId: guild.id,
         channelId,
