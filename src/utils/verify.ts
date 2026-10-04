@@ -369,9 +369,9 @@ export async function ensureMemberVerifyPermissions(
     return false;
   }
 
-  // Eine alte Prüf-Rolle im Kanal würde das Member-Override aushebeln. Deshalb
-  // vor jedem Freischalten wegräumen.
-  await cleanupLegacyMicRole(guild, channelId);
+  // Eine alte Rollen-Override im Kanal würde das Member-Override aushebeln.
+  // Deshalb vor jedem Freischalten wegräumen. Die Rolle selbst bleibt.
+  await cleanupLegacyMicRoleOverride(guild, channelId);
 
   try {
     // Die Rechte hängen direkt am Mitglied, nicht an einer Rolle. Damit braucht
@@ -531,82 +531,55 @@ export async function clearMemberVerifyPermissions(
 }
 
 /**
- * Räumt die alte Prüf-Rolle auf. Aus früheren Versionen kann noch Folgendes
- * herumliegen und das Sprechrecht blockieren:
+ * Räumt das alte Rollen-Override der Prüf-Rolle im Prüf-Kanal auf.
  *
- * 1. Ein Rollen-Override im Prüf-Kanal, der `Speak` verbietet. Solange der
- *    Bot diese Rolle nicht bearbeiten kann (Rollen-Hierarchie), bleibt das
- *    Verbot stehen – und Discord gewinnt dann gegen das Member-Override.
- * 2. Die Rolle selbst an den Mitgliedern.
+ * Die Rolle selbst bleibt dauerhaft an den Mitgliedern – sie wird hier
+ * **nicht** entfernt. Weg muss nur das Override: Ein Rollen-Override mit
+ * `Speak: false` gewinnt gegen das Member-Override und hält das Mitglied
+ * dann stumm, obwohl der Bot die Rechte korrekt gesetzt hat.
  *
- * Beides wird hier entfernt, damit nur noch die Member-Overrides zählen.
+ * Ist das Override weg, entscheidet allein das Member-Override, und die
+ * Sichtbarkeit von außen steuert `@everyone` im Kanal.
  */
-export async function cleanupLegacyMicRole(
+export async function cleanupLegacyMicRoleOverride(
   guild: Guild,
   channelId: string,
 ): Promise<void> {
   const role = guild.roles.cache.get(LEGACY_MIC_CHECK_ROLE_ID);
   if (!role) return;
 
-  // 1) Rollen-Override im Prüf-Kanal entfernen.
   const channel = guild.channels.cache.get(channelId);
   if (
-    channel?.isVoiceBased() &&
-    channel.permissionOverwrites.cache.has(role.id)
+    !channel?.isVoiceBased() ||
+    !channel.permissionOverwrites.cache.has(role.id)
   ) {
-    try {
-      await channel.permissionOverwrites.delete(
-        role.id,
-        "Verify: altes Rollen-Override aufräumen",
-      );
-      logger.info("Altes Prüf-Rollen-Override aus dem Kanal entfernt.", {
+    return;
+  }
+
+  try {
+    await channel.permissionOverwrites.delete(
+      role.id,
+      "Verify: Rollen-Override entfernen, Sprechrecht läuft über das Mitglied",
+    );
+    logger.info(
+      "Rollen-Override der Prüf-Rolle aus dem Kanal entfernt – die Rolle " +
+        "bleibt an den Mitgliedern, nur die Rechte laufen jetzt direkt.",
+      {
         guildId: guild.id,
         channelId,
         roleId: role.id,
-      });
-    } catch (err) {
-      logger.warn(
-        "Altes Prüf-Rollen-Override konnte nicht entfernt werden. Solange es " +
-          "steht, kann es das Sprechrecht blockieren – die Rolle muss dafür " +
-          "unter der höchsten Bot-Rolle liegen.",
-        {
-          guildId: guild.id,
-          channelId,
-          roleId: role.id,
-          error: err,
-        },
-      );
-    }
-  }
-
-  // 2) Rolle von allen Mitgliedern nehmen, die sie noch haben.
-  const affected = [...guild.members.cache.values()].filter((m) =>
-    m.roles.cache.has(role.id),
-  );
-  if (affected.length === 0) return;
-  try {
-    await Promise.all(
-      affected.map((m) =>
-        m.roles.remove(
-          role.id,
-          "Verify: alte Prüf-Rolle wird nicht mehr benutzt",
-        ),
-      ),
+      },
     );
-    logger.info("Alte Prüf-Rolle von Mitgliedern entfernt.", {
-      guildId: guild.id,
-      roleId: role.id,
-      count: affected.length,
-    });
   } catch (err) {
     logger.warn(
-      "Alte Prüf-Rolle konnte nicht von allen Mitgliedern entfernt werden. " +
-        "Dafür braucht der Bot 'Manage Roles' und die Rolle muss unter seiner " +
-        "höchsten Rolle liegen.",
+      "Rollen-Override der Prüf-Rolle konnte nicht entfernt werden. Solange es " +
+        "mit 'Senden: aus' im Kanal steht, bleibt das Mitglied stumm – die " +
+        "Rolle muss dafür unter der höchsten Bot-Rolle liegen. Alternativ das " +
+        "Override von Hand im Kanal löschen.",
       {
         guildId: guild.id,
+        channelId,
         roleId: role.id,
-        count: affected.length,
         error: err,
       },
     );
