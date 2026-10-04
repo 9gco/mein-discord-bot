@@ -4,8 +4,8 @@ import { createStorage } from "./storage.js";
 
 /**
  * Rollen, die neuen Mitgliedern standardmäßig automatisch zugewiesen werden.
- * Die Mikrofon-Prüfrolle (MIC_CHECK_ROLE_ID) ist hier bewusst NICHT enthalten –
- * sie vergibt das Verify-System nur für die Dauer der Prüfung.
+ * Das Verify-System vergibt selbst keine Rolle mehr – das Sprechrecht hängt
+ * direkt an den Kanalrechten des Mitglieds.
  */
 export const DEFAULT_ROLE_IDS = ["1547675348806803547"];
 

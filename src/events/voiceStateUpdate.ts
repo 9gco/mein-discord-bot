@@ -10,12 +10,12 @@ import {
   abortableDelay,
   applyQueueNickname,
   clearCooldown,
-  clearMemberSpeakOverride,
+  clearMemberVerifyPermissions,
   connectToVerifyChannel,
   cooldownRemaining,
   dequeueWaiting,
   enqueueWaiting,
-  ensureMicRoleChannelPermissions,
+  ensureMemberVerifyPermissions,
   fetchTtsAudio,
   getVerifyConfig,
   peekFirstEligible,
@@ -74,26 +74,6 @@ const MIC_MAX_ATTEMPTS = 3;
  * blockiert es niemanden.
  */
 const MIC_COOLDOWN_MS = 60_000;
-
-/**
- * Gibt dem Mitglied die Prüf-Rolle. Die Rolle bleibt danach dauerhaft
- * bestehen – abgesichert wird über die Kanalrechte, nicht über die Rolle.
- */
-async function grantMicRole(member: GuildMember, micRoleId: string): Promise<boolean> {
-  if (member.roles.cache.has(micRoleId)) return true;
-  try {
-    await member.roles.add(micRoleId, "Freischaltung für den Mikrofon-Check");
-    return true;
-  } catch (err) {
-    logger.error("Prüf-Rolle konnte nicht vergeben werden.", {
-      guildId: member.guild.id,
-      userId: member.id,
-      roleId: micRoleId,
-      error: err,
-    });
-    return false;
-  }
-}
 
 /** Spielt eine Ansage, nachdem im Kanal Ruhe herrscht. */
 async function speak(
@@ -171,12 +151,13 @@ function describeMicProblem(result: MicCheckResult): string {
 
 /**
  * Vollständiger Prüf-Durchlauf für ein Mitglied:
- * Rolle geben und Sprechrecht freischalten → in den Prüf-Kanal ziehen → Ansage
- * → Mikrofon-Check (bis zu `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden →
- * Sprechrecht sperren → Wartezeit bei Fehlschlag → aus dem Call entfernen.
+ * Kanalrechte am Mitglied setzen → in den Prüf-Kanal ziehen → Ansage →
+ * Mikrofon-Check (bis zu `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden →
+ * Sprechrecht sperren und Rechte entfernen → Wartezeit bei Fehlschlag → aus dem
+ * Call entfernen.
  *
- * Die Prüf-Rolle bleibt dauerhaft am Mitglied. Das Sprechrecht wird von der
- * Rolle über die Kanalrechte gesteuert: an während der Prüfung, aus danach.
+ * Es gibt keine Prüf-Rolle. Das Sprechrecht hängt direkt an den Kanalrechten
+ * des Mitglieds: an, wenn der Bot zum Sprechen auffordert, aus danach.
  */
 async function runVerify(
   guild: Guild,
@@ -185,30 +166,20 @@ async function runVerify(
   signal: AbortSignal,
 ): Promise<void> {
   const verifyChannelId = cfg.channelId;
-  const micRoleId = cfg.micRoleId;
   if (!verifyChannelId) {
     await releaseQueueSlot(guild, member);
     return;
   }
 
-  // 1) Rolle und Kanalrechte zuerst: das Mitglied braucht Connect, bevor es
-  //    in den Kanal bewegt wird. Das Sprechrecht bleibt hier noch aus – es
-  //    wird erst freigeschaltet, wenn der Bot zum Sprechen auffordert.
-  const maySpeak = await grantMicRole(member, micRoleId);
-  if (!maySpeak) {
-    logger.warn("Ohne Prüf-Rolle kein Mikrofon-Check möglich.", {
-      guildId: guild.id,
-      userId: member.id,
-    });
-    await releaseQueueSlot(guild, member);
-    return;
-  }
-  const reachable = await ensureMicRoleChannelPermissions(
+  // 1) Kanalrechte zuerst: das Mitglied braucht Connect, bevor es in den Kanal
+  //    bewegt wird. Das Sprechrecht bleibt hier noch aus – es wird erst
+  //    freigeschaltet, wenn der Bot zum Sprechen auffordert.
+  //    Es gibt bewusst keine Rolle: die Rechte hängen direkt am Mitglied.
+  const reachable = await ensureMemberVerifyPermissions(
     guild,
     verifyChannelId,
-    micRoleId,
-    false,
     member.id,
+    false,
   );
   if (!reachable) {
     logger.warn(
@@ -288,18 +259,17 @@ async function runVerify(
         signal,
       );
       throwIfAborted(signal);
-      const armedForAttempt = await ensureMicRoleChannelPermissions(
+      const armedForAttempt = await ensureMemberVerifyPermissions(
         guild,
         verifyChannelId,
-        micRoleId,
-        true,
         member.id,
+        true,
       );
       if (!armedForAttempt) {
         logger.error(
           "Sprechrecht konnte nicht freigeschaltet werden – Abbruch. Im Log " +
-            "steht, welcher Baustein blockiert (ViewChannel, @everyone-Override " +
-            "oder Rollen-Hierarchie).",
+            "steht, welcher Baustein blockiert (ViewChannel oder ein " +
+            "@everyone-Override, der das Sprechen verweigert).",
           {
             guildId: guild.id,
             userId: member.id,
@@ -317,12 +287,11 @@ async function runVerify(
       const result = await runMicCheck(connection, member.id, signal);
 
       // Und direkt wieder stumm, bevor der Bot den Fehler erklärt.
-      await ensureMicRoleChannelPermissions(
+      await ensureMemberVerifyPermissions(
         guild,
         verifyChannelId,
-        micRoleId,
-        false,
         member.id,
+        false,
       );
 
       // Abbruch? Dann nichts mehr ansagen, der Durchlauf ist vorbei.
@@ -434,17 +403,15 @@ async function runVerify(
       });
     }
   } finally {
-    // 7) Sprechrecht wieder sperren. Die Rolle selbst bleibt bestehen.
-    await ensureMicRoleChannelPermissions(
+    // 7) Sprechrecht wieder sperren und danach alle Kanalrechte des Mitglieds
+    //    entfernen, damit keine Reste im Prüf-Kanal zurückbleiben.
+    await ensureMemberVerifyPermissions(
       guild,
       verifyChannelId,
-      micRoleId,
-      false,
       member.id,
+      false,
     );
-    // Reste des Member-Overrides entfernen, damit niemand dauerhaft Sonderrechte
-    // im Prüf-Kanal behält.
-    await clearMemberSpeakOverride(guild, verifyChannelId, member.id);
+    await clearMemberVerifyPermissions(guild, verifyChannelId, member.id);
     // Nickname immer zurücksetzen – auch bei Abbruch. Wer den Kanal
     // verlassen hat, darf nicht mit "(1) " dastehen bleiben.
     await stripQueueNickname(guild, member.id);

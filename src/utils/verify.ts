@@ -29,8 +29,12 @@ export interface VerifyConfig {
   channelId?: string;
   /** Voice-Kanal, in dem Mitglieder zunächst warten (Standard: WAITING_CHANNEL_ID). */
   waitingChannelId?: string;
-  /** Rolle, die während der Prüfung Sprechberechtigung gibt. */
-  micRoleId: string;
+/**
+ * Altbestand aus früheren Versionen: es gab einmal eine Prüf-Rolle. Wird nicht
+ * mehr verwendet, das Sprechrecht hängt jetzt direkt am Mitglied. Nur noch
+ * im Typ, damit gespeicherte Konfigurationen weiterhin geladen werden können.
+ */
+  micRoleId?: string;
   /** Der Text, den der Bot im Voice-Kanal vorliest. {user} = Name des Nutzers. */
   message: string;
   /** Ansage, wenn das Mikrofon nicht brauchbar ist. */
@@ -52,14 +56,19 @@ export interface VerifyConfig {
 export const WAITING_CHANNEL_ID = "1547675527844864020";
 /** Kanal, in dem Ansage und Mikrofon-Check laufen. */
 export const VERIFY_CHANNEL_ID = "1547676303149244508";
-/** Rolle, die einem Mitglied während der Prüfung Sprechberechtigung gibt. */
-export const MIC_CHECK_ROLE_ID = "1547675358948753418";
+/**
+ * Es gibt bewusst keine Prüf-Rolle mehr. Das Sprechrecht hängt direkt an den
+ * Kanalrechten des Mitglieds, dadurch braucht es keine Rolle und keine
+ * Rollen-Hierarchie. Wer früher eine Rolle mit dieser ID angelegt hat, kann sie
+ * löschen.
+ */
+export const LEGACY_MIC_CHECK_ROLE_ID = "1547675358948753418";
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
-  micRoleId: MIC_CHECK_ROLE_ID,
+  
   message:
     "Willkommen in der Whitelist, {user}. Schön, dass du den Weg zu uns gefunden hast. " +
     "Ich habe dich hierher in den Prüf-Kanal geholt. Damit wir dich im Voice-Chat gut " +
@@ -145,7 +154,7 @@ function normalizeConfig(stored: Partial<VerifyConfig> | undefined): VerifyConfi
     enabled: stored?.enabled ?? DEFAULT_CONFIG.enabled,
     channelId: stored?.channelId || VERIFY_CHANNEL_ID,
     waitingChannelId: stored?.waitingChannelId || WAITING_CHANNEL_ID,
-    micRoleId: stored?.micRoleId || MIC_CHECK_ROLE_ID,
+    
     message:
       typeof stored?.message === "string" && stored.message
         ? stored.message
@@ -318,8 +327,10 @@ export async function connectToVerifyChannel(
 }
 
 /**
- * Setzt die Kanalrechte der Prüf-Rolle im Prüf-Kanal. Die Rolle macht den
- * Kanal von außen unsichtbar, lässt ihn aber zu:
+ * Setzt die Kanalrechte eines Mitglieds im Prüf-Kanal. Es gibt bewusst keine
+ * Prüf-Rolle: die Rechte hängen direkt am Mitglied und brauchen daher weder eine
+ * Rolle noch eine Rollen-Hierarchie. Die Rechte machen den
+ * Kanal von außen unsichtbar, lassen ihn aber zu:
  *
  * - `ViewChannel: false`  Kanal taucht nicht in der Kanalliste auf
  * - `Connect: true`       hineinbewegen und verbunden sein ist möglich;
@@ -334,18 +345,17 @@ export async function connectToVerifyChannel(
  * **kein** View Channel haben, sonst ist er für alle sichtbar.
  *
  * `armed = true` schaltet das Sprechrecht frei, `armed = false` nimmt es wieder
- * weg. Die Rolle selbst bleibt dauerhaft am Mitglied.
+ * weg. Nach der Prüfung werden die Rechte komplett vom Mitglied entfernt.
  *
  * Der Aufruf ist idempotent und kann deshalb bei jedem Start laufen.
  *
  * Gibt false zurück, wenn der Bot keine Berechtigung dafür hat.
  */
-export async function ensureMicRoleChannelPermissions(
+export async function ensureMemberVerifyPermissions(
   guild: Guild,
   channelId: string,
-  micRoleId: string,
+  memberId: string,
   armed: boolean,
-  memberId?: string,
 ): Promise<boolean> {
   const channel = guild.channels.cache.get(channelId);
   if (!channel?.isVoiceBased()) {
@@ -357,8 +367,11 @@ export async function ensureMicRoleChannelPermissions(
   }
 
   try {
+    // Die Rechte hängen direkt am Mitglied, nicht an einer Rolle. Damit braucht
+    // es keine Rolle, keine Rollen-Hierarchie und kein "Manage Roles" – nur
+    // "Manage Channels" für die Overrides.
     await channel.permissionOverwrites.edit(
-      micRoleId,
+      memberId,
       {
         // Unsichtbar von außen, aber hineinbewegen und verbunden sein geht.
         ViewChannel: false,
@@ -366,8 +379,7 @@ export async function ensureMicRoleChannelPermissions(
         Speak: armed,
         SendMessages: false,
         Stream: false,
-        // Mute/Deafen bleiben in beiden Zuständen gesetzt, damit niemand im
-        // Prüf-Kanal andere stummschalten oder tauben kann.
+        // Niemand soll im Prüf-Kanal andere stummschalten oder tauben können.
         MuteMembers: true,
         DeafenMembers: true,
         MoveMembers: false,
@@ -383,34 +395,32 @@ export async function ensureMicRoleChannelPermissions(
     // Gegenprobe: hat Discord das Speak-Bit wirklich gesetzt? Ohne diese Prüfung
     // meldet Discord Erfolg, das Mitglied bleibt aber trotzdem stumm, wenn eine
     // andere Rollen-Override das Bit wieder verweigert.
-    if (armed) await assertSpeakAllowed(guild, channelId, micRoleId, memberId);
+    if (armed) await assertSpeakAllowed(guild, channelId, memberId);
 
     logger.info(
       armed
-        ? "Sprechrecht der Prüf-Rolle freigeschaltet."
-        : "Sprechrecht der Prüf-Rolle wieder gesperrt.",
+        ? "Sprechrecht für das Mitglied freigeschaltet."
+        : "Sprechrecht für das Mitglied wieder gesperrt.",
       {
         guildId: guild.id,
         channelId,
-        roleId: micRoleId,
+        userId: memberId,
       },
     );
     return true;
   } catch (err) {
-    logger.warn(
-      "Kanalrechte der Prüf-Rolle nicht setzbar – weiche auf ein Member-Override " +
-        "aus. Grund: der Bot braucht 'Manage Channels' und die Prüf-Rolle muss " +
-        "unter seiner höchsten Rolle liegen.",
+    logger.error(
+      "Kanalrechte für das Mitglied konnten nicht gesetzt werden. Der Bot " +
+        "braucht 'Manage Channels'.",
       {
         guildId: guild.id,
         channelId,
-        roleId: micRoleId,
+        userId: memberId,
         armed,
         error: err,
       },
     );
-    if (!memberId) return false;
-    return setMemberSpeakOverride(guild, channelId, memberId, armed);
+    return false;
   }
 }
 
@@ -422,17 +432,11 @@ export async function ensureMicRoleChannelPermissions(
 async function assertSpeakAllowed(
   guild: Guild,
   channelId: string,
-  micRoleId: string,
-  memberId?: string,
+  memberId: string,
 ): Promise<void> {
-  if (!memberId) return;
   const member = guild.members.cache.get(memberId);
   if (!member) return;
   const perms = member.permissionsIn(channelId);
-  const channel = guild.channels.cache.get(channelId);
-  const roleOverwrite = channel?.isVoiceBased()
-    ? channel.permissionOverwrites.cache.get(micRoleId)
-    : undefined;
   logger.info("Sprechrecht geprüft.", {
     guildId: guild.id,
     channelId,
@@ -440,73 +444,21 @@ async function assertSpeakAllowed(
     viewChannel: perms.has(PermissionFlagsBits.ViewChannel),
     connect: perms.has(PermissionFlagsBits.Connect),
     speak: perms.has(PermissionFlagsBits.Speak),
-    roleSpeak: roleOverwrite?.deny.has(PermissionFlagsBits.Speak)
-      ? "deny"
-      : roleOverwrite?.allow.has(PermissionFlagsBits.Speak)
-        ? "allow"
-        : "none",
   });
   if (!perms.has(PermissionFlagsBits.Speak)) {
     throw new Error(
-      "Mitglied hat trotz gesetztem Speak-Bit kein Sprechrecht. Prüfe im " +
-        "Prüf-Kanal die Overrides von @everyone und von weiteren Rollen des " +
-        "Mitglieds sowie 'Senden' in der Sprechzeile.",
+      "Mitglied hat trotz gesetztem Speak-Bit kein Sprechrecht. Im Prüf-Kanal " +
+        "darf @everyone kein Sprechrecht verweigern und dem Mitglied darf keine " +
+        "weitere Rolle das Sprechen verbieten.",
     );
   }
 }
 
 /**
- * Notnagel: erlaubt bzw. verbietet das Sprechen direkt für ein Mitglied.
- * Member-Overrides sind nicht von der Rollen-Hierarchie abhängig und schlagen
- * Rollen-Overrides. Nur als Rückfall, wenn die Rolle selbst nicht funktioniert.
+ * Entfernt die Kanalrechte eines Mitglieds wieder vollständig. Nötig, damit
+ * nach der Prüfung keine Reste am Mitglied hängen bleiben.
  */
-async function setMemberSpeakOverride(
-  guild: Guild,
-  channelId: string,
-  memberId: string,
-  allowed: boolean,
-): Promise<boolean> {
-  const channel = guild.channels.cache.get(channelId);
-  if (!channel?.isVoiceBased()) return false;
-  try {
-    await channel.permissionOverwrites.edit(
-      memberId,
-      { Speak: allowed },
-      {
-        reason: allowed
-          ? "Verify: Sprechrecht per Mitglied freischalten"
-          : "Verify: Sprechrecht per Mitglied wieder sperren",
-      },
-    );
-    const perms = await guild.members.fetch(memberId).then(
-      (m) => m.permissionsIn(channelId),
-      () => undefined,
-    );
-    const ok = perms?.has(PermissionFlagsBits.Speak) ?? allowed;
-    logger.info("Sprechrecht per Mitglied-Override gesetzt.", {
-      guildId: guild.id,
-      channelId,
-      userId: memberId,
-      speak: allowed,
-      wirkt: ok,
-    });
-    return true;
-  } catch (err) {
-    logger.error("Auch das Member-Override hat nicht geholfen.", {
-      guildId: guild.id,
-      channelId,
-      userId: memberId,
-      speak: allowed,
-      error: err,
-    });
-    return false;
-  }
-}
-
-/**
- * Entfernt ein gesetztes Member-Override wieder, damit keine Reste bleiben.
- */
-export async function clearMemberSpeakOverride(
+export async function clearMemberVerifyPermissions(
   guild: Guild,
   channelId: string,
   memberId: string,
@@ -516,11 +468,21 @@ export async function clearMemberSpeakOverride(
   try {
     await channel.permissionOverwrites.edit(
       memberId,
-      { Speak: null },
-      { reason: "Verify: Sprechrecht-Override aufräumen" },
+      {
+        ViewChannel: null,
+        Connect: null,
+        Speak: null,
+        SendMessages: null,
+        Stream: null,
+        MuteMembers: null,
+        DeafenMembers: null,
+        MoveMembers: null,
+        MentionEveryone: null,
+      },
+      { reason: "Verify: Kanalrechte nach der Prüfung aufräumen" },
     );
   } catch {
-    // Gab es nie eines – dann ist nichts zu tun.
+    // Gab es nie welche – dann ist nichts zu tun.
   }
 }
 

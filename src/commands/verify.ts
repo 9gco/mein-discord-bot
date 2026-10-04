@@ -85,14 +85,6 @@ const command: {
     )
     .addSubcommand((sub) =>
       sub
-        .setName("microle")
-        .setDescription("Rolle, die während der Prüfung Sprechrecht gibt.")
-        .addRoleOption((o) =>
-          o.setName("role").setDescription("Die Rolle.").setRequired(true),
-        ),
-    )
-    .addSubcommand((sub) =>
-      sub
         .setName("toggle")
         .setDescription("Aktiviert oder deaktiviert das System.")
         .addBooleanOption((o) =>
@@ -257,7 +249,6 @@ const command: {
           `**Warteraum:** ${cfg.waitingChannelId ? `<#${cfg.waitingChannelId}>` : "Nicht gesetzt"}\n` +
           `**Kanal:** ${cfg.channelId ? `<#${cfg.channelId}>` : "Nicht gesetzt"}\n` +
           `**Stimme:** ${voiceLabel(cfg.voice)}\n` +
-          `**Prüf-Rolle:** <@&${cfg.micRoleId}>\n` +
           `**Rollen:** ${roleMentions}\n` +
           `**Text:** ${cfg.message}\n` +
           `**Sprech-Aufforderung:** ${cfg.speakNowMessage}`;
@@ -267,9 +258,6 @@ const command: {
       } else if (sub === "waiting") {
         cfg.waitingChannelId = interaction.options.getChannel("channel", true).id;
         message = `Warteraum: <#${cfg.waitingChannelId}>`;
-      } else if (sub === "microle") {
-        cfg.micRoleId = interaction.options.getRole("role", true).id;
-        message = `Prüf-Rolle: <@&${cfg.micRoleId}>`;
       } else if (sub === "toggle") {
         cfg.enabled = interaction.options.getBoolean("enabled", true);
         message = cfg.enabled
