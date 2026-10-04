@@ -35,6 +35,13 @@ function busyKey(guildId: string, userId: string): string {
   return `${guildId}:${userId}`;
 }
 
+/** Kurze Pause, damit der Nutzer nach der Ansage losreden kann. */
+const MIC_START_DELAY_MS = 1_200;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Vergibt die Prüf-Rollen. `micRoleId` gibt dem Mitglied nur während der
  * Prüfung Sprechberechtigung und wird danach wieder genommen; die dauerhaften
@@ -165,8 +172,11 @@ async function runVerify(
       return;
     }
 
-    // 5) Warten, bis der Nutzer bereit ist, dann aufnehmen.
-    await waitForSilence(connection);
+    // 5) Kurz Luft lassen, damit der Nutzer direkt losreden kann. Hier bewusst
+    //    KEIN Warten auf Stille – sonst würde eine sofort begonnene Antwort
+    //    vergehen, weil wir erst auf ihr Ende warten würden. Der Mic-Check
+    //    wartet von sich aus bis zu MIC_MAX_WAIT_MS auf den ersten Ton.
+    await delay(MIC_START_DELAY_MS);
     const result = await runMicCheck(connection, member.id);
 
     if (result.ok) {
