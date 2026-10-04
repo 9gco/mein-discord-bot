@@ -30,9 +30,9 @@ export interface VerifyConfig {
   /** Voice-Kanal, in dem Mitglieder zunÃ¤chst warten (Standard: WAITING_CHANNEL_ID). */
   waitingChannelId?: string;
 /**
- * Altbestand aus frÃ¼heren Versionen: es gab einmal eine PrÃ¼f-Rolle. Wird nicht
- * mehr verwendet, das Sprechrecht hÃ¤ngt jetzt direkt am Mitglied. Nur noch
- * im Typ, damit gespeicherte Konfigurationen weiterhin geladen werden kÃ¶nnen.
+ * Altbestand aus früheren Versionen: es gab einmal eine Prüf-Rolle, die
+ * dauerhaft vergeben wurde. Wird nicht mehr verwendet, bleibt nur im Typ,
+ * damit gespeicherte Konfigurationen geladen werden können.
  */
   micRoleId?: string;
   /** Der Text, den der Bot im Voice-Kanal vorliest. {user} = Name des Nutzers. */
@@ -57,10 +57,14 @@ export const WAITING_CHANNEL_ID = "1547675527844864020";
 /** Kanal, in dem Ansage und Mikrofon-Check laufen. */
 export const VERIFY_CHANNEL_ID = "1547676303149244508";
 /**
- * Rolle, die dauerhaft an geprüfte Mitglieder vergeben wird. Der Bot setzt sie
- * selbst nicht mehr – sie wird von Hand vergeben und dient dazu, den Kanal
- * sichtbar zu halten: ihre Kanalrechte entscheiden, wer den Prüf-Kanal sieht
- * und sprechen darf. Genau deshalb ändert der Bot keine Rechte selbst.
+ * Rolle, die dauerhaft an geprüfte Mitglieder vergeben wird. Sie bleibt
+ * dauerhaft und wird vom Bot nicht angefasst.
+ *
+ * Für den Zugang zum Prüf-Kanal ist sie nicht zuständig: `@everyone` hat im
+ * Prüf-Kanal weder "Kanäle ansehen" noch "Verbinden", damit sich niemand
+ * selbst eintragen kann. Der Bot zieht seine Wartenden mit "Move Members"
+ * trotzdem hinein, und "Senden" steht für alle offen, damit sie dort reden
+ * können.
  */
 export const MIC_CHECK_ROLE_ID = "1547675358948753418";
 

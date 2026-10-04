@@ -154,9 +154,12 @@ function describeMicProblem(result: MicCheckResult): string {
  * `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden → Wartezeit bei Fehlschlag →
  * aus dem Call entfernen.
  *
- * Der Bot ändert keine Kanalrechte. Die Rechte im Prüf-Kanal – View Channel,
- * Connect und Senden – werden komplett von Hand in Discord gesetzt. Auch das
- * Sprechrecht wird nicht geschaltet: das Mitglied kann durchgehend reden.
+ * Der Bot ändert keine Kanalrechte. Die Rechte im Prüf-Kanal werden
+ * komplett von Hand in Discord gesetzt: `@everyone` hat dort weder
+ * "Kanäle ansehen" noch "Verbinden" (so kommt niemand selbst hinein),
+ * "Senden" ist offen (damit die Wartenden nach dem Move reden können).
+ * Der Bot braucht dafür nur "Move Members". Auch das Sprechrecht wird
+ * nicht geschaltet: das Mitglied kann durchgehend reden.
  */
 async function runVerify(
   guild: Guild,
@@ -175,17 +178,25 @@ async function runVerify(
   //    rein lesend, damit ein Problem im Log sichtbar wird.
   logVerifyPermissions(guild, verifyChannelId, member.id);
 
-  // 2) Aus dem Warteraum in den Prüf-Kanal holen.
+  // 2) Aus dem Warteraum in den Prüf-Kanal holen. Discord erlaubt das auch
+  //    dann, wenn @everyone dort kein "Kanäle ansehen"/"Verbinden" hat –
+  //    nötig ist nur "Move Members" für den Bot. Damit kann sich niemand
+  //    selbst eintragen, der Bot zieht seine Wartenden aber hinein.
   if (member.voice.channelId !== verifyChannelId) {
     try {
       await member.voice.setChannel(verifyChannelId);
     } catch (err) {
-      logger.error("Mitglied konnte nicht in den Prüf-Kanal bewegt werden.", {
-        guildId: guild.id,
-        userId: member.id,
-        channelId: verifyChannelId,
-        error: err,
-      });
+      logger.error(
+        "Mitglied konnte nicht in den Prüf-Kanal bewegt werden. Der Bot " +
+          "braucht 'Move Members' und im Prüf-Kanal muss 'Senden' für " +
+          "@everyone erlaubt sein, damit das Mitglied dort reden kann.",
+        {
+          guildId: guild.id,
+          userId: member.id,
+          channelId: verifyChannelId,
+          error: err,
+        },
+      );
       await releaseQueueSlot(guild, member);
       return;
     }
