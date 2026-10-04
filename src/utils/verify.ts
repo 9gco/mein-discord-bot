@@ -77,8 +77,7 @@ const DEFAULT_CONFIG: VerifyConfig = {
     "Ich habe dich hierher in den Prüf-Kanal geholt. Damit wir dich im Voice-Chat gut " +
     "verstehen, machen wir gleich einen kurzen Mikrofon-Check.",
   speakNowMessage:
-    "So, {user}, du kannst jetzt sprechen. Sag einfach ein paar Sätze für mich, " +
-    "ich höre zu.",
+    "So, {user}, du kannst jetzt sprechen. Sag einfach ein paar Sätze für mich, ich höre zu.",
   micFailedMessage:
     "Prüfe bitte deine Discord-Sende-Einstellung und deine Eingabelautstärke, stelle " +
     "dein Mikrofon ein und komm anschließend noch einmal in den Warteraum.",
