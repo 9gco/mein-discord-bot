@@ -26,9 +26,9 @@ export interface KeyValueStore<T> {
 /**
  * File-backed storage, one JSON file per key.
  *
- * On VybeBot Cloud with persistent storage enabled the root directory is
- * `PERSISTENT_DATA_DIR` (`/app/data`), a Docker volume that survives
- * redeployments and host migrations. Without it the bot falls back to `.data`
+ * Set `PERSISTENT_DATA_DIR` to a mounted volume (for example `/data` on
+ * Railway) and the data survives redeployments. Without it the bot falls back
+ * to `.data`
  * in the working directory, which is wiped on every redeploy — fine for local
  * development, not for anything users expect to keep.
  */

@@ -5,6 +5,7 @@ import {
   connectToVerifyChannel,
   getVerifyConfig,
 } from "../utils/verify.js";
+import { resumeVerifyQueue } from "./voiceStateUpdate.js";
 import type { BotEvent } from "./index.js";
 
 /** Lässt den Bot dauerhaft in alle aktiven Verify-Kanäle beitreten. */
@@ -33,16 +34,18 @@ const event: BotEvent<Events.ClientReady> = {
   name: Events.ClientReady,
   once: true,
 
-  async execute(client: Client<true>): Promise<void> {
+async execute(client: Client<true>): Promise<void> {
     const { storage } = loadConfig();
-    ;
     logger.info("Bot is online.", {
       tag: client.user.tag,
       dataDir: storage.dir,
       durableStorage: storage.durable,
     });
-    // Kurz warten, bis die Guilds/Kanäle geladen sind, dann beitreten.
-    setImmediate(() => void autoJoinVerifyChannels(client));
+    // Kurz warten, bis die Guilds/Kanäle geladen sind, dann beitreten und
+    // eventuell noch wartende Mitglieder wieder aufnehmen.
+    setImmediate(() => {
+      void autoJoinVerifyChannels(client).then(() => resumeVerifyQueue(client));
+    });
   },
 };
 

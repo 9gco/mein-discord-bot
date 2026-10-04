@@ -2,15 +2,15 @@ import { EmbedBuilder } from "discord.js";
 import { loadConfig } from "../config.js";
 import { createStorage } from "./storage.js";
 
-/** Rollen, die neuen Mitgliedern standardmäßig automatisch zugewiesen werden. */
-export const DEFAULT_ROLE_IDS = [
-  "1547675358948753418",
-  "1547675348806803547",
-];
+/**
+ * Rollen, die neuen Mitgliedern standardmäßig automatisch zugewiesen werden.
+ * Die Mikrofon-Prüfrolle (MIC_CHECK_ROLE_ID) ist hier bewusst NICHT enthalten –
+ * sie vergibt das Verify-System nur für die Dauer der Prüfung.
+ */
+export const DEFAULT_ROLE_IDS = ["1547675348806803547"];
 
 /** Logo, das als Server-Logo oben rechts (Thumbnail) verwendet wird. */
-export const DEFAULT_LOGO_URL =
-  "";
+export const DEFAULT_LOGO_URL = "";
 
 export const DEFAULT_SERVER_NAME = "Vendetta Roleplay";
 

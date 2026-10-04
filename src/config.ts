@@ -7,8 +7,9 @@ export interface BotConfig {
   guildId?: string;
   storage: {
     /**
-     * Where runtime data lives. On VybeBot Cloud with persistence enabled this
-     * is `PERSISTENT_DATA_DIR` (`/app/data`) and survives redeployments.
+     * Where runtime data lives. Set `PERSISTENT_DATA_DIR` to a mounted volume
+     * (for example `/data` on Railway) so the data survives redeployments.
+     * Without it a local directory is used that every redeploy wipes.
      */
     dir: string;
     /** False when falling back to a local directory that a redeploy wipes. */
@@ -46,7 +47,7 @@ export function loadConfig(): BotConfig {
 }
 
 function readConfig(): BotConfig {
-  // Set by VybeBot Cloud when persistent storage is enabled for the branch.
+  // Points at a mounted volume; set it to keep runtime data across redeploys.
   const persistentDir = process.env["PERSISTENT_DATA_DIR"]?.trim() ?? "";
 
   return {
