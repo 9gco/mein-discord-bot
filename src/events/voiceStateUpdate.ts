@@ -7,8 +7,10 @@ import {
 } from "discord.js";
 import { logger } from "../utils/logger.js";
 import {
+  abortableDelay,
   applyQueueNickname,
   clearCooldown,
+  clearMemberSpeakOverride,
   connectToVerifyChannel,
   cooldownRemaining,
   dequeueWaiting,
@@ -24,7 +26,9 @@ import {
   setCooldown,
   spokenName,
   stripQueueNickname,
+  throwIfAborted,
   waitForSilence,
+  VerifyAbortedError,
   WAITING_CHANNEL_ID,
   type MicCheckResult,
   type VerifyConfig,
@@ -35,12 +39,26 @@ import type { BotEvent } from "./index.js";
 const busy = new Set<string>();
 /** Pro Guild: läuft bereits eine Prüfung? */
 const activeGuild = new Map<string, string>();
+/**
+ * Laufende Prüf-Durchläufe mit Abbruch-Hebel. Verlässt ein Mitglied den Kanal,
+ * wird hierüber der laufende Durchlauf sofort beendet – sonst wartet der Bot
+ * noch bis zu 45 Sekunden auf Mikrofon-Sprache und die Schlange steht still.
+ */
+const running = new Map<string, AbortController>();
 
 function busyKey(guildId: string, userId: string): string {
   return `${guildId}:${userId}`;
 }
 
-/** Kurze Pause, damit der Nutzer nach der Ansage losreden kann. */
+/** Bricht einen laufenden Durchlauf ab, falls es einen gibt. */
+function abortRun(guildId: string, userId: string): boolean {
+  const controller = running.get(busyKey(guildId, userId));
+  if (!controller) return false;
+  controller.abort();
+  return true;
+}
+
+/** Kurz pause, damit der Nutzer nach der Ansage losreden kann. */
 const MIC_START_DELAY_MS = 1_200;
 
 /**
@@ -56,10 +74,6 @@ const MIC_MAX_ATTEMPTS = 3;
  * blockiert es niemanden.
  */
 const MIC_COOLDOWN_MS = 60_000;
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Gibt dem Mitglied die Prüf-Rolle. Die Rolle bleibt danach dauerhaft
@@ -87,7 +101,9 @@ async function speak(
   channelId: string,
   text: string,
   voice: string,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   const connection = await connectToVerifyChannel(guild, channelId);
   if (!connection) {
     logger.error("Keine Voice-Verbindung – Ansage entfällt.", {
@@ -97,19 +113,25 @@ async function speak(
     return;
   }
   // Erst warten, bis niemand spricht, sonst redet der Bot mitten im Satz rein.
-  await waitForSilence(connection);
+  await waitForSilence(connection, 700, 60_000, signal);
+  throwIfAborted(signal);
   const buffer = await fetchTtsAudio(text, voice);
-  await playBuffer(connection, buffer);
+  throwIfAborted(signal);
+  await playBuffer(connection, buffer, signal);
+  throwIfAborted(signal);
 }
 
 /**
  * Gibt den Warteschlangen-Slot wieder frei und rückt die Nummern nach.
  * Nötig, wenn ein Durchlauf früh abbricht – sonst bleibt der Slot vorne
  * stehen und der nächste Start versucht immer denselben Kandidaten.
+ *
+ * Reihenfolge wichtig: erst den Nickname zurücksetzen, dann den Eintrag löschen.
+ * `stripQueueNickname` braucht den Eintrag, um den Originalnamen zu kennen.
  */
 async function releaseQueueSlot(guild: Guild, member: GuildMember): Promise<void> {
-  dequeueWaiting(guild.id, member.id);
   await stripQueueNickname(guild, member.id);
+  dequeueWaiting(guild.id, member.id);
   await renumberWaiting(guild);
 }
 
@@ -160,6 +182,7 @@ async function runVerify(
   guild: Guild,
   member: GuildMember,
   cfg: VerifyConfig,
+  signal: AbortSignal,
 ): Promise<void> {
   const verifyChannelId = cfg.channelId;
   const micRoleId = cfg.micRoleId;
@@ -185,6 +208,7 @@ async function runVerify(
     verifyChannelId,
     micRoleId,
     false,
+    member.id,
   );
   if (!reachable) {
     logger.warn(
@@ -234,6 +258,7 @@ async function runVerify(
       verifyChannelId,
       cfg.message.replace(/\{user\}/g, name),
       cfg.voice,
+      signal,
     );
 
     // 5) Mehrere Versuche direkt nacheinander. Die meisten Fehler sind
@@ -249,6 +274,7 @@ async function runVerify(
           `Kein Problem, wir versuchen es nochmal. Diesmal ist dein ` +
             `Versuch Nummer ${attempt} von ${MIC_MAX_ATTEMPTS}.`,
           cfg.voice,
+          signal,
         );
       }
 
@@ -259,18 +285,27 @@ async function runVerify(
         verifyChannelId,
         cfg.speakNowMessage.replace(/\{user\}/g, name),
         cfg.voice,
+        signal,
       );
+      throwIfAborted(signal);
       const armedForAttempt = await ensureMicRoleChannelPermissions(
         guild,
         verifyChannelId,
         micRoleId,
         true,
+        member.id,
       );
       if (!armedForAttempt) {
-        logger.warn("Sprechrecht konnte nicht freigeschaltet werden.", {
-          guildId: guild.id,
-          userId: member.id,
-        });
+        logger.error(
+          "Sprechrecht konnte nicht freigeschaltet werden – Abbruch. Im Log " +
+            "steht, welcher Baustein blockiert (ViewChannel, @everyone-Override " +
+            "oder Rollen-Hierarchie).",
+          {
+            guildId: guild.id,
+            userId: member.id,
+            channelId: verifyChannelId,
+          },
+        );
         break;
       }
 
@@ -278,8 +313,8 @@ async function runVerify(
       // KEIN Warten auf Stille – sonst würde eine sofort begonnene Antwort
       // vergehen, weil wir erst auf ihr Ende warten würden. Der Mic-Check
       // wartet von sich aus bis zu MIC_MAX_WAIT_MS auf den ersten Ton.
-      await delay(MIC_START_DELAY_MS);
-      const result = await runMicCheck(connection, member.id);
+      await abortableDelay(MIC_START_DELAY_MS, signal);
+      const result = await runMicCheck(connection, member.id, signal);
 
       // Und direkt wieder stumm, bevor der Bot den Fehler erklärt.
       await ensureMicRoleChannelPermissions(
@@ -287,7 +322,11 @@ async function runVerify(
         verifyChannelId,
         micRoleId,
         false,
+        member.id,
       );
+
+      // Abbruch? Dann nichts mehr ansagen, der Durchlauf ist vorbei.
+      if (result.reason === "aborted") return;
 
       lastResult = result;
 
@@ -317,6 +356,7 @@ async function runVerify(
           ? `${problem} ${cfg.micFailedMessage.replace(/\{user\}/g, name)}`
           : problem,
         cfg.voice,
+        signal,
       );
     }
 
@@ -327,6 +367,7 @@ async function runVerify(
         verifyChannelId,
         cfg.micPassedMessage.replace(/\{user\}/g, name),
         cfg.voice,
+        signal,
       );
 
       const rolesToAdd = cfg.roles.filter(
@@ -375,14 +416,23 @@ async function runVerify(
         `Komm bitte in ${seconds} Sekunden noch einmal in den Warteraum, ` +
           `dann versuchen wir es erneut.`,
         cfg.voice,
+        signal,
       );
     }
   } catch (err) {
-    logger.error("Prüf-Durchlauf fehlgeschlagen.", {
-      guildId: guild.id,
-      userId: member.id,
-      error: err,
-    });
+    // Vorzeitiges Verlassen ist kein Fehler, sondern der Normalfall.
+    if (err instanceof VerifyAbortedError) {
+      logger.info("Prüfung abgebrochen – Mitglied hat den Kanal verlassen.", {
+        guildId: guild.id,
+        userId: member.id,
+      });
+    } else {
+      logger.error("Prüf-Durchlauf fehlgeschlagen.", {
+        guildId: guild.id,
+        userId: member.id,
+        error: err,
+      });
+    }
   } finally {
     // 7) Sprechrecht wieder sperren. Die Rolle selbst bleibt bestehen.
     await ensureMicRoleChannelPermissions(
@@ -390,7 +440,14 @@ async function runVerify(
       verifyChannelId,
       micRoleId,
       false,
+      member.id,
     );
+    // Reste des Member-Overrides entfernen, damit niemand dauerhaft Sonderrechte
+    // im Prüf-Kanal behält.
+    await clearMemberSpeakOverride(guild, verifyChannelId, member.id);
+    // Nickname immer zurücksetzen – auch bei Abbruch. Wer den Kanal
+    // verlassen hat, darf nicht mit "(1) " dastehen bleiben.
+    await stripQueueNickname(guild, member.id);
     dequeueWaiting(guild.id, member.id);
     // Die Nummern der Wartenden rücken nach.
     await renumberWaiting(guild);
@@ -427,12 +484,15 @@ function startNextIfIdle(guild: Guild, cfg: VerifyConfig): void {
 
   busy.add(key);
   activeGuild.set(guild.id, next.userId);
+  const controller = new AbortController();
+  running.set(key, controller);
 
   void runExclusive(guild.id, async () => {
     try {
-      await runVerify(guild, member, cfg);
+      await runVerify(guild, member, cfg, controller.signal);
     } finally {
       busy.delete(key);
+      running.delete(key);
       if (activeGuild.get(guild.id) === next.userId) activeGuild.delete(guild.id);
       startNextIfIdle(guild, cfg);
     }
@@ -512,8 +572,8 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
     // Nur echte Mitglieder, keine Bots.
     if (newState.member?.user.bot) return;
 
-    // Nur Beitritte interessieren uns, keine Mute-/Unmute-Ereignisse.
-    if (!newState.channelId) return;
+    // Mute/Unmute und reine Rechtewechsel ignorieren – nur Kanalwechsel
+    // interessieren uns.
     if (oldState.channelId === newState.channelId) return;
 
     const cfg = await getVerifyConfig(guild.id);
@@ -530,6 +590,31 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
     if (cfg.roles.some((roleId) => member.roles.cache.has(roleId))) return;
 
     const key = busyKey(guild.id, member.id);
+
+    // 0) Hat den Kanal verlassen – auch per Disconnect, bei dem channelId
+    //    auf null fällt. Ohne diesen Zweig bleiben Nickname und Queue-Eintrag
+    //    zurück und niemand wird mehr aufgerufen.
+    const leftVerify = oldState.channelId === verifyChannelId;
+    const leftWaiting =
+      oldState.channelId === waitingChannelId && oldState.channelId !== verifyChannelId;
+
+    if (!newState.channelId && (leftVerify || leftWaiting || busy.has(key))) {
+      const aborted = abortRun(guild.id, member.id);
+      // Ein laufender Durchlauf räumt in seinem finally selbst auf. Wer nur in der
+      // Warteschlange stand, muss hier entfernt werden.
+      if (!aborted) {
+        await stripQueueNickname(guild, member.id);
+        dequeueWaiting(guild.id, member.id);
+        await renumberWaiting(guild);
+      }
+      logger.info("Mitglied hat den Kanal verlassen – Eintrag aufgeräumt.", {
+        guildId: guild.id,
+        userId: member.id,
+        wasVerifying: leftVerify,
+        aborted,
+      });
+      return;
+    }
 
     // 1) Beitritt in den Warteraum: Platz in der Schlange sichern, Namen
     //    mit der Wartenummer versehen und – falls nichts wartet – starten.
@@ -565,20 +650,34 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
       return;
     }
 
-    // 3) Aus dem Prüf-Kanal wieder in den Warteraum: neu einreihen.
-    if (oldState.channelId === verifyChannelId && newState.channelId !== verifyChannelId) {
-      dequeueWaiting(guild.id, member.id);
-      if (newState.channelId === waitingChannelId) {
-        const position = enqueueWaiting(
-          guild.id,
-          member.id,
-          member.nickname,
-          member.displayName,
-        );
-        await applyQueueNickname(guild, member.id, position);
-      } else {
-        await renumberWaiting(guild);
+    // 3) Aus dem Prüf-Kanal in einen anderen Kanal gewechselt: laufende Prüfung
+    //    abbrechen. Der Nickname wird im finally des Durchlaufs zurückgesetzt,
+    //    außer der Durchlauf kam nie zustande.
+    if (leftVerify) {
+      const aborted = abortRun(guild.id, member.id);
+      if (!aborted) {
+        await stripQueueNickname(guild, member.id);
+        dequeueWaiting(guild.id, member.id);
       }
+      await renumberWaiting(guild);
+      logger.info("Prüfung verlassen – abgebrochen.", {
+        guildId: guild.id,
+        userId: member.id,
+        toChannelId: newState.channelId,
+        aborted,
+      });
+      return;
+    }
+
+    // 4) Aus dem Warteraum in einen anderen Kanal: nicht mehr warten.
+    if (leftWaiting && newState.channelId !== waitingChannelId) {
+      await stripQueueNickname(guild, member.id);
+      dequeueWaiting(guild.id, member.id);
+      await renumberWaiting(guild);
+      logger.info("Aus der Warteschlange gegangen – Eintrag entfernt.", {
+        guildId: guild.id,
+        userId: member.id,
+      });
     }
   },
 };

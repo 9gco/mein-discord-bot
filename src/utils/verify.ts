@@ -11,7 +11,7 @@ import {
   joinVoiceChannel,
   type VoiceConnection,
 } from "@discordjs/voice";
-import type { Guild, GuildMember } from "discord.js";
+import { PermissionFlagsBits, type Guild, type GuildMember } from "discord.js";
 import OpusScript from "opusscript";
 import ffmpeg from "ffmpeg-static";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
@@ -242,6 +242,52 @@ async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
  * Stellt sicher, dass der Bot im Ziel-Voice-Kanal verbunden und bereit ist.
  * Wartet bis zur Ready-State, sonst wird das Audio von Discord verworfen.
  */
+/**
+ * Wird geworfen, wenn ein Prüf-Durchlauf abbricht, weil das Mitglied den
+ * Kanal vorher verlassen hat. Kein Fehlerfall, sondern normales Ende.
+ */
+export class VerifyAbortedError extends Error {
+  constructor(reason = "Prüfung abgebrochen") {
+    super(reason);
+    this.name = "VerifyAbortedError";
+  }
+}
+
+/** Prüft, ob ein Durchlauf noch laufen darf, und wirft sonst. */
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new VerifyAbortedError();
+}
+
+/** `setTimeout`, das bei Abbruch sofort wieder zurückkehrt. */
+export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new VerifyAbortedError());
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new VerifyAbortedError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Registriert einen Abbruch-Handler und liefert die Aufräumfunktion. */
+export function onAbort(signal: AbortSignal | undefined, fn: () => void): () => void {
+  if (!signal) return () => undefined;
+  if (signal.aborted) {
+    fn();
+    return () => undefined;
+  }
+  signal.addEventListener("abort", fn, { once: true });
+  return () => signal.removeEventListener("abort", fn);
+}
+
 export async function connectToVerifyChannel(
   guild: Guild,
   channelId: string,
@@ -299,6 +345,7 @@ export async function ensureMicRoleChannelPermissions(
   channelId: string,
   micRoleId: string,
   armed: boolean,
+  memberId?: string,
 ): Promise<boolean> {
   const channel = guild.channels.cache.get(channelId);
   if (!channel?.isVoiceBased()) {
@@ -332,6 +379,12 @@ export async function ensureMicRoleChannelPermissions(
           : "Verify: Sprechrecht nach der Mikrofon-Prüfung wieder sperren",
       },
     );
+
+    // Gegenprobe: hat Discord das Speak-Bit wirklich gesetzt? Ohne diese Prüfung
+    // meldet Discord Erfolg, das Mitglied bleibt aber trotzdem stumm, wenn eine
+    // andere Rollen-Override das Bit wieder verweigert.
+    if (armed) await assertSpeakAllowed(guild, channelId, micRoleId, memberId);
+
     logger.info(
       armed
         ? "Sprechrecht der Prüf-Rolle freigeschaltet."
@@ -344,10 +397,10 @@ export async function ensureMicRoleChannelPermissions(
     );
     return true;
   } catch (err) {
-    logger.error(
-      "Kanalrechte der Prüf-Rolle konnten nicht gesetzt werden – der " +
-        "Bot braucht 'Manage Channels' und die Rolle muss unter seiner " +
-        "höchsten Rolle liegen.",
+    logger.warn(
+      "Kanalrechte der Prüf-Rolle nicht setzbar – weiche auf ein Member-Override " +
+        "aus. Grund: der Bot braucht 'Manage Channels' und die Prüf-Rolle muss " +
+        "unter seiner höchsten Rolle liegen.",
       {
         guildId: guild.id,
         channelId,
@@ -356,7 +409,118 @@ export async function ensureMicRoleChannelPermissions(
         error: err,
       },
     );
+    if (!memberId) return false;
+    return setMemberSpeakOverride(guild, channelId, memberId, armed);
+  }
+}
+
+/**
+ * Liest die Kanalrechte für ein Mitglied zurück und meldet, ob es tatsächlich
+ * sprechen darf. Fällt dabei ein `ViewChannel: false` auf, ist das ein häufiger
+ * Grund für stumm geschaltete Mitglieder – deshalb mitloggen.
+ */
+async function assertSpeakAllowed(
+  guild: Guild,
+  channelId: string,
+  micRoleId: string,
+  memberId?: string,
+): Promise<void> {
+  if (!memberId) return;
+  const member = guild.members.cache.get(memberId);
+  if (!member) return;
+  const perms = member.permissionsIn(channelId);
+  const channel = guild.channels.cache.get(channelId);
+  const roleOverwrite = channel?.isVoiceBased()
+    ? channel.permissionOverwrites.cache.get(micRoleId)
+    : undefined;
+  logger.info("Sprechrecht geprüft.", {
+    guildId: guild.id,
+    channelId,
+    userId: memberId,
+    viewChannel: perms.has(PermissionFlagsBits.ViewChannel),
+    connect: perms.has(PermissionFlagsBits.Connect),
+    speak: perms.has(PermissionFlagsBits.Speak),
+    roleSpeak: roleOverwrite?.deny.has(PermissionFlagsBits.Speak)
+      ? "deny"
+      : roleOverwrite?.allow.has(PermissionFlagsBits.Speak)
+        ? "allow"
+        : "none",
+  });
+  if (!perms.has(PermissionFlagsBits.Speak)) {
+    throw new Error(
+      "Mitglied hat trotz gesetztem Speak-Bit kein Sprechrecht. Prüfe im " +
+        "Prüf-Kanal die Overrides von @everyone und von weiteren Rollen des " +
+        "Mitglieds sowie 'Senden' in der Sprechzeile.",
+    );
+  }
+}
+
+/**
+ * Notnagel: erlaubt bzw. verbietet das Sprechen direkt für ein Mitglied.
+ * Member-Overrides sind nicht von der Rollen-Hierarchie abhängig und schlagen
+ * Rollen-Overrides. Nur als Rückfall, wenn die Rolle selbst nicht funktioniert.
+ */
+async function setMemberSpeakOverride(
+  guild: Guild,
+  channelId: string,
+  memberId: string,
+  allowed: boolean,
+): Promise<boolean> {
+  const channel = guild.channels.cache.get(channelId);
+  if (!channel?.isVoiceBased()) return false;
+  try {
+    await channel.permissionOverwrites.edit(
+      memberId,
+      { Speak: allowed },
+      {
+        reason: allowed
+          ? "Verify: Sprechrecht per Mitglied freischalten"
+          : "Verify: Sprechrecht per Mitglied wieder sperren",
+      },
+    );
+    const perms = await guild.members.fetch(memberId).then(
+      (m) => m.permissionsIn(channelId),
+      () => undefined,
+    );
+    const ok = perms?.has(PermissionFlagsBits.Speak) ?? allowed;
+    logger.info("Sprechrecht per Mitglied-Override gesetzt.", {
+      guildId: guild.id,
+      channelId,
+      userId: memberId,
+      speak: allowed,
+      wirkt: ok,
+    });
+    return true;
+  } catch (err) {
+    logger.error("Auch das Member-Override hat nicht geholfen.", {
+      guildId: guild.id,
+      channelId,
+      userId: memberId,
+      speak: allowed,
+      error: err,
+    });
     return false;
+  }
+}
+
+/**
+ * Entfernt ein gesetztes Member-Override wieder, damit keine Reste bleiben.
+ */
+export async function clearMemberSpeakOverride(
+  guild: Guild,
+  channelId: string,
+  memberId: string,
+): Promise<void> {
+  const channel = guild.channels.cache.get(channelId);
+  if (!channel?.isVoiceBased()) return;
+  try {
+    await channel.permissionOverwrites.edit(
+      memberId,
+      { Speak: null },
+      { reason: "Verify: Sprechrecht-Override aufräumen" },
+    );
+  } catch {
+    // Gab es nie eines – dann ist nichts zu tun.
   }
 }
 
@@ -368,10 +532,12 @@ export async function ensureMicRoleChannelPermissions(
 export function playBuffer(
   connection: VoiceConnection,
   buffer: Buffer,
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    let detachAbort: () => void = () => undefined;
 
     const player = createAudioPlayer();
     const resource = createAudioResource(Readable.from(buffer), {
@@ -383,12 +549,19 @@ export function playBuffer(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      detachAbort();
+      try {
+        // Bei Abbruch muss der Player sofort stoppen, sonst redet der Bot
+        // in einen leeren Kanal weiter.
+        player.stop(true);
+      } catch {
+        // Player war bereits fertig.
+      }
       if (timedOut) {
-        try {
-          player.stop();
-        } catch {
-          // Player war bereits fertig.
-        }
+        logger.warn("Ansage wurde abgebrochen.", {
+          estimatedMs,
+          bytes: buffer.length,
+        });
       }
       resolve();
     };
@@ -396,21 +569,20 @@ export function playBuffer(
     // Das MP3 kommt mit ca. 48 kbit/s (~6 kB/s). Bewusst konservativ schätzen
     // (5 kB/s) und großzügig Puffer drauflegen.
     const estimatedMs = Math.ceil((buffer.length / 5000) * 1000);
-    timer = setTimeout(() => {
-      logger.warn("Audio-Wiedergabe-Timeout – Ansage wurde abgebrochen.", {
-        estimatedMs,
-        bytes: buffer.length,
-      });
-      finish(true);
-    }, estimatedMs + 20_000);
+    timer = setTimeout(
+      () => finish(true),
+      estimatedMs + 20_000,
+    );
 
     player.once(AudioPlayerStatus.Idle, () => finish(false));
-    player.once("error", (err) => {
+    player.once("error", (err: Error) => {
       logger.error("Audio-Player-Fehler während der Verifizierung.", {
         error: err,
       });
       finish(false);
     });
+
+    detachAbort = onAbort(signal, () => finish(false));
 
     connection.subscribe(player);
     player.play(resource);
@@ -473,6 +645,8 @@ export type MicCheckReason =
   | "too_quiet"
   | "clipping"
   | "noisy"
+  /** Abbruch, weil das Mitglied den Kanal vorzeitig verlassen hat. */
+  | "aborted"
   | "error";
 
 export interface MicCheckResult {
@@ -577,6 +751,7 @@ export function waitForSilence(
   connection: VoiceConnection,
   graceMs = 700,
   maxWaitMs = 60_000,
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve) => {
     const speaking = connection.receiver.speaking;
@@ -584,12 +759,14 @@ export function waitForSilence(
     let active = 0;
     let graceTimer: NodeJS.Timeout | undefined;
     let hardTimeout: NodeJS.Timeout | undefined;
+    let detachAbort: () => void = () => undefined;
 
     const finish = (): void => {
       if (settled) return;
       settled = true;
       if (graceTimer) clearTimeout(graceTimer);
       if (hardTimeout) clearTimeout(hardTimeout);
+      detachAbort();
       speaking.off("start", onStart);
       speaking.off("end", onEnd);
       resolve();
@@ -613,6 +790,7 @@ export function waitForSilence(
     hardTimeout = setTimeout(finish, maxWaitMs);
     speaking.on("start", onStart);
     speaking.on("end", onEnd);
+    detachAbort = onAbort(signal, finish);
 
     // Wer schon spricht, zählt ebenfalls als belegt.
     if (speaking.users.size > 0) active = speaking.users.size;
@@ -636,6 +814,7 @@ export function waitForSilence(
 export function runMicCheck(
   connection: VoiceConnection,
   memberId: string,
+  signal?: AbortSignal,
 ): Promise<MicCheckResult> {
   return new Promise((resolve) => {
     let decoder: OpusScript | undefined;
@@ -772,6 +951,14 @@ let settled = false;
     });
 
     hardTimeout = setTimeout(evaluate, MIC_MAX_WAIT_MS);
+
+    // Bricht das Mitglied vorher ab, endet der Check sofort – sonst würde die
+    // ganze Schlange bis zu MIC_MAX_WAIT_MS blockiert bleiben.
+    detachers.push(
+      onAbort(signal, () => {
+        finish({ ok: false, reason: "aborted", speechMs: 0, level: 0, peak: 0, snr: 0 });
+      }),
+    );
 
     // Speaking-Events sind die verlässlichste Trennung zwischen Sprache und
     // Rauschen – der Pegel allein reicht bei laufendem Hintergrund nicht.
