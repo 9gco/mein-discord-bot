@@ -358,6 +358,7 @@ export async function ensureMemberVerifyPermissions(
   channelId: string,
   memberId: string,
   armed: boolean,
+  blockingRoleId?: string,
 ): Promise<boolean> {
   const channel = guild.channels.cache.get(channelId);
   if (!channel?.isVoiceBased()) {
@@ -367,6 +368,10 @@ export async function ensureMemberVerifyPermissions(
     });
     return false;
   }
+
+  // Eine alte Prüf-Rolle im Kanal würde das Member-Override aushebeln. Deshalb
+  // vor jedem Freischalten wegräumen.
+  await cleanupLegacyMicRole(guild, channelId);
 
   try {
     // Die Rechte hängen direkt am Mitglied, nicht an einer Rolle. Damit braucht
@@ -399,8 +404,15 @@ export async function ensureMemberVerifyPermissions(
 
     // Gegenprobe: hat Discord das Speak-Bit wirklich gesetzt? Ohne diese Prüfung
     // meldet Discord Erfolg, das Mitglied bleibt aber trotzdem stumm, wenn eine
-    // andere Rollen-Override das Bit wieder verweigert.
-    if (armed) await assertSpeakAllowed(guild, channelId, memberId);
+    // andere Rolle das Bit weiterhin verweigert.
+    if (armed) {
+      await assertSpeakAllowed(
+        guild,
+        channelId,
+        memberId,
+        blockingRoleId ?? LEGACY_MIC_CHECK_ROLE_ID,
+      );
+    }
 
     logger.info(
       armed
@@ -438,10 +450,21 @@ async function assertSpeakAllowed(
   guild: Guild,
   channelId: string,
   memberId: string,
+  blockingRoleId?: string,
 ): Promise<void> {
   const member = guild.members.cache.get(memberId);
   if (!member) return;
   const perms = member.permissionsIn(channelId);
+  // Welche Rolle des Mitglieds verweigert aktuell das Sprechen? Das ist die
+  // häufigste Ursache, warum es trotz gesetztem Speak-Bit stumm bleibt.
+  const blockers: string[] = [];
+  if (blockingRoleId) {
+    const channel = guild.channels.cache.get(channelId);
+    const roleOverwrite = channel?.isVoiceBased()
+      ? channel.permissionOverwrites.cache.get(blockingRoleId)
+      : undefined;
+    if (roleOverwrite?.deny.has(PermissionFlagsBits.Speak)) blockers.push(blockingRoleId);
+  }
   logger.info("Sprechrecht geprüft.", {
     guildId: guild.id,
     channelId,
@@ -449,12 +472,14 @@ async function assertSpeakAllowed(
     viewChannel: perms.has(PermissionFlagsBits.ViewChannel),
     connect: perms.has(PermissionFlagsBits.Connect),
     speak: perms.has(PermissionFlagsBits.Speak),
+    blockingRoles: blockers,
+    roles: [...member.roles.cache.keys()],
   });
   if (!perms.has(PermissionFlagsBits.Speak)) {
     throw new Error(
       "Mitglied hat trotz gesetztem Speak-Bit kein Sprechrecht. Im Prüf-Kanal " +
-        "darf @everyone kein Sprechrecht verweigern und dem Mitglied darf keine " +
-        "weitere Rolle das Sprechen verbieten.",
+        "darf @everyone kein Sprechrecht verweigern und keine Rolle des " +
+        "Mitglieds (siehe blockingRoles im Log) das Sprechen verbieten.",
     );
   }
 }
@@ -471,6 +496,14 @@ export async function clearMemberVerifyPermissions(
   const channel = guild.channels.cache.get(channelId);
   if (!channel?.isVoiceBased()) return;
   try {
+    // Erst das Sprechrecht sperren, dann alles löschen. Beim Löschen von View
+    // und Connect trennt Discord das Mitglied sofort aus dem Kanal – das ist
+    // gewollt, aber der Sprechweg soll vorher schon dicht sein.
+    await channel.permissionOverwrites.edit(
+      memberId,
+      { Speak: false },
+      { reason: "Verify: Sprechrecht sperren vor dem Aufräumen" },
+    );
     await channel.permissionOverwrites.edit(
       memberId,
       {
@@ -486,8 +519,97 @@ export async function clearMemberVerifyPermissions(
       },
       { reason: "Verify: Kanalrechte nach der Prüfung aufräumen" },
     );
+    logger.info("Kanalrechte nach der Prüfung vom Mitglied entfernt.", {
+      guildId: guild.id,
+      channelId,
+      userId: memberId,
+      rest: channel.permissionOverwrites.cache.has(memberId),
+    });
   } catch {
     // Gab es nie welche – dann ist nichts zu tun.
+  }
+}
+
+/**
+ * Räumt die alte Prüf-Rolle auf. Aus früheren Versionen kann noch Folgendes
+ * herumliegen und das Sprechrecht blockieren:
+ *
+ * 1. Ein Rollen-Override im Prüf-Kanal, der `Speak` verbietet. Solange der
+ *    Bot diese Rolle nicht bearbeiten kann (Rollen-Hierarchie), bleibt das
+ *    Verbot stehen – und Discord gewinnt dann gegen das Member-Override.
+ * 2. Die Rolle selbst an den Mitgliedern.
+ *
+ * Beides wird hier entfernt, damit nur noch die Member-Overrides zählen.
+ */
+export async function cleanupLegacyMicRole(
+  guild: Guild,
+  channelId: string,
+): Promise<void> {
+  const role = guild.roles.cache.get(LEGACY_MIC_CHECK_ROLE_ID);
+  if (!role) return;
+
+  // 1) Rollen-Override im Prüf-Kanal entfernen.
+  const channel = guild.channels.cache.get(channelId);
+  if (
+    channel?.isVoiceBased() &&
+    channel.permissionOverwrites.cache.has(role.id)
+  ) {
+    try {
+      await channel.permissionOverwrites.delete(
+        role.id,
+        "Verify: altes Rollen-Override aufräumen",
+      );
+      logger.info("Altes Prüf-Rollen-Override aus dem Kanal entfernt.", {
+        guildId: guild.id,
+        channelId,
+        roleId: role.id,
+      });
+    } catch (err) {
+      logger.warn(
+        "Altes Prüf-Rollen-Override konnte nicht entfernt werden. Solange es " +
+          "steht, kann es das Sprechrecht blockieren – die Rolle muss dafür " +
+          "unter der höchsten Bot-Rolle liegen.",
+        {
+          guildId: guild.id,
+          channelId,
+          roleId: role.id,
+          error: err,
+        },
+      );
+    }
+  }
+
+  // 2) Rolle von allen Mitgliedern nehmen, die sie noch haben.
+  const affected = [...guild.members.cache.values()].filter((m) =>
+    m.roles.cache.has(role.id),
+  );
+  if (affected.length === 0) return;
+  try {
+    await Promise.all(
+      affected.map((m) =>
+        m.roles.remove(
+          role.id,
+          "Verify: alte Prüf-Rolle wird nicht mehr benutzt",
+        ),
+      ),
+    );
+    logger.info("Alte Prüf-Rolle von Mitgliedern entfernt.", {
+      guildId: guild.id,
+      roleId: role.id,
+      count: affected.length,
+    });
+  } catch (err) {
+    logger.warn(
+      "Alte Prüf-Rolle konnte nicht von allen Mitgliedern entfernt werden. " +
+        "Dafür braucht der Bot 'Manage Roles' und die Rolle muss unter seiner " +
+        "höchsten Rolle liegen.",
+      {
+        guildId: guild.id,
+        roleId: role.id,
+        count: affected.length,
+        error: err,
+      },
+    );
   }
 }
 

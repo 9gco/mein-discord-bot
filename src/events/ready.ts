@@ -2,6 +2,7 @@ import { Events, type Client } from "discord.js";
 import { loadConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
 import {
+  cleanupLegacyMicRole,
   connectToVerifyChannel,
   getVerifyConfig,
 } from "../utils/verify.js";
@@ -24,6 +25,9 @@ async function autoJoinVerifyChannels(client: Client<true>): Promise<void> {
       // Die Kanalrechte hängen direkt am Mitglied, es gibt keine Prüf-Rolle.
       // Deshalb ist beim Start nichts zu setzen: wer gerade läuft, bekommt seine
       // Rechte direkt im Prüf-Durchlauf.
+      // Altbestand aufräumen: die frühere Prüf-Rolle kann das Sprechrecht
+      // blockieren, solange ihr Override im Kanal steht.
+      await cleanupLegacyMicRole(guild, cfg.channelId);
     } catch (err) {
       logger.error("Auto-Join in den Verify-Kanal fehlgeschlagen.", {
         guildId: guild.id,
