@@ -2,7 +2,6 @@ import { Events, type Client } from "discord.js";
 import { loadConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
 import {
-  cleanupLegacyMicRoleOverride,
   connectToVerifyChannel,
   getVerifyConfig,
 } from "../utils/verify.js";
@@ -22,11 +21,10 @@ async function autoJoinVerifyChannels(client: Client<true>): Promise<void> {
         guildId: guild.id,
         channelId: cfg.channelId,
       });
-      // Die Kanalrechte hängen direkt am Mitglied. Die Rolle 1547675358948753418
-      // bleibt dauerhaft an den Mitgliedern, nur ihr Override im Kanal wird
-      // entfernt – ein Rollen-Override mit 'Senden: aus' gewinnt sonst gegen
-      // das Member-Override und das Mitglied bleibt stumm.
-      await cleanupLegacyMicRoleOverride(guild, cfg.channelId);
+      // Der Bot aendert an den Kanalrechten nichts. Die Rechte im Pruef-Kanal
+      // (View Channel, Connect, Senden) werden komplett von Hand in Discord
+      // gesetzt - nur so ist sichergestellt, dass der Bot nichts davon
+      // versehentlich ueberschreibt.
     } catch (err) {
       logger.error("Auto-Join in den Verify-Kanal fehlgeschlagen.", {
         guildId: guild.id,

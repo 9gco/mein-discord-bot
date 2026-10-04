@@ -10,14 +10,13 @@ import {
   abortableDelay,
   applyQueueNickname,
   clearCooldown,
-  clearMemberVerifyPermissions,
   connectToVerifyChannel,
   cooldownRemaining,
   dequeueWaiting,
   enqueueWaiting,
-  ensureMemberVerifyPermissions,
   fetchTtsAudio,
   getVerifyConfig,
+  logVerifyPermissions,
   peekFirstEligible,
   playBuffer,
   renumberWaiting,
@@ -151,12 +150,13 @@ function describeMicProblem(result: MicCheckResult): string {
 
 /**
  * Vollständiger Prüf-Durchlauf für ein Mitglied:
- * Kanalrechte am Mitglied setzen → in den Prüf-Kanal ziehen → Ansage →
- * Mikrofon-Check (bis zu `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden →
- * Rechte entfernen → Wartezeit bei Fehlschlag → aus dem Call entfernen.
+ * in den Prüf-Kanal ziehen → Ansage → Mikrofon-Check (bis zu
+ * `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden → Wartezeit bei Fehlschlag →
+ * aus dem Call entfernen.
  *
- * Es gibt keine Prüf-Rolle, und das Sprechrecht wird nicht geschaltet: das
- * Mitglied kann im Prüf-Kanal durchgehend reden.
+ * Der Bot ändert keine Kanalrechte. Die Rechte im Prüf-Kanal – View Channel,
+ * Connect und Senden – werden komplett von Hand in Discord gesetzt. Auch das
+ * Sprechrecht wird nicht geschaltet: das Mitglied kann durchgehend reden.
  */
 async function runVerify(
   guild: Guild,
@@ -170,23 +170,10 @@ async function runVerify(
     return;
   }
 
-  // 1) Kanalrechte zuerst: das Mitglied braucht Connect, bevor es in den Kanal
-  //    bewegt wird, und dauerhaft Sprechrecht. Das Sprechrecht wird nicht
-  //    geschaltet – das Mitglied kann durchgehend reden.
-  //    Es gibt keine Rolle: die Rechte hängen direkt am Mitglied.
-  const reachable = await ensureMemberVerifyPermissions(
-    guild,
-    verifyChannelId,
-    member.id,
-  );
-  if (!reachable) {
-    logger.warn(
-      "Ohne Connect im Prüf-Kanal kann das Mitglied nicht hineinbewegt werden.",
-      { guildId: guild.id, userId: member.id },
-    );
-    await releaseQueueSlot(guild, member);
-    return;
-  }
+  // 1) Der Bot aendert an den Rechten nichts. Die Rechte im Prüf-Kanal werden
+  //    von Hand in Discord gesetzt. Wir schauen nur nach, was gerade gilt –
+  //    rein lesend, damit ein Problem im Log sichtbar wird.
+  logVerifyPermissions(guild, verifyChannelId, member.id);
 
   // 2) Aus dem Warteraum in den Prüf-Kanal holen.
   if (member.voice.channelId !== verifyChannelId) {
@@ -374,10 +361,7 @@ async function runVerify(
       });
     }
   } finally {
-    // 7) Alle Kanalrechte des Mitglieds wieder entfernen, damit keine Reste
-    //    im Prüf-Kanal zurückbleiben. Das Mitglied wird danach ohnehin
-    //    aus dem Call geholt.
-    await clearMemberVerifyPermissions(guild, verifyChannelId, member.id);
+    // 7) Keine Rechte aufraeumen - es wurden keine gesetzt.
     // Nickname immer zurücksetzen – auch bei Abbruch. Wer den Kanal
     // verlassen hat, darf nicht mit "(1) " dastehen bleiben.
     await stripQueueNickname(guild, member.id);
