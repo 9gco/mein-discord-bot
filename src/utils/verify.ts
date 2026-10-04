@@ -261,17 +261,20 @@ export async function connectToVerifyChannel(
 }
 
 /**
- * Setzt die Kanalrechte der Prüf-Rolle im Prüf-Kanal. Die Rolle steuert
- * ausschließlich das Sprechrecht – Sichtbarkeit und Verbinden kommen bewusst
- * aus den Discord-Kanalrechten und werden hier nicht angefasst:
+ * Setzt die Kanalrechte der Prüf-Rolle im Prüf-Kanal. Die Rolle macht den
+ * Kanal von außen unsichtbar, lässt ihn aber zu:
  *
- * - `Speak: true`      während der Prüfung darf gesprochen werden
- * - `Speak: null`      danach wieder erben, also kein Sonderrecht mehr
- * - `Mute/Deafen`      bleiben gesetzt, damit niemand im Prüf-Kanal andere
- *                      stummschalten oder tauben kann
- * - `ViewChannel/Connect: null`  ausdrücklich auf "erben" – die Rolle macht
- *                      den Kanal weder sichtbar noch betretbar
- * - `Move/Stream/Ping` verweigert
+ * - `ViewChannel: false`  Kanal taucht nicht in der Kanalliste auf
+ * - `Connect: true`       hineinbewegen und verbunden sein ist möglich;
+ *                         Discord zeigt den Kanal dann nur, solange man
+ *                         verbunden ist
+ * - `Speak: true/null`    Sprechrecht nur während der Prüfung
+ * - `Mute/Deafen`         bleiben gesetzt, damit niemand im Prüf-Kanal andere
+ *                         stummschalten oder tauben kann
+ * - `Move/Stream/Ping`    verweigert
+ *
+ * Voraussetzung für "von außen nicht sichtbar": `@everyone` darf im Kanal
+ * **kein** View Channel haben, sonst ist er für alle sichtbar.
  *
  * `armed = true` schaltet das Sprechrecht frei, `armed = false` nimmt es wieder
  * weg. Die Rolle selbst bleibt dauerhaft am Mitglied.
@@ -299,9 +302,9 @@ export async function ensureMicRoleChannelPermissions(
     await channel.permissionOverwrites.edit(
       micRoleId,
       {
-        // null = "erben": die Rolle macht den Kanal nicht sichtbar.
-        ViewChannel: null,
-        Connect: null,
+        // Unsichtbar von außen, aber hineinbewegen und verbunden sein geht.
+        ViewChannel: false,
+        Connect: true,
         Speak: armed,
         SendMessages: false,
         Stream: false,
