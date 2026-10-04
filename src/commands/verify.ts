@@ -104,6 +104,11 @@ const command: {
     )
     .addSubcommand((sub) =>
       sub
+        .setName("speaknow")
+        .setDescription("Setzt den Text, mit dem das Sprechen freigeschaltet wird."),
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName("voice")
         .setDescription("Wählt die TTS-Stimme.")
         .addStringOption((o) =>
@@ -203,6 +208,33 @@ const command: {
       return;
     }
 
+    // Aufforderung zum Sprechen setzen → Modal öffnen.
+    if (sub === "speaknow") {
+      const cfg = getCachedVerifyConfig(guildId);
+      const modal = new ModalBuilder()
+        .setCustomId("speaknow")
+        .setTitle("Sprech-Aufforderung")
+        .addLabelComponents(
+          new LabelBuilder()
+            .setLabel("Text")
+            .setDescription(
+              "Wird gesprochen, danach wird das Sprechrecht freigeschaltet.",
+            )
+            .setTextInputComponent(
+              new TextInputBuilder()
+                .setCustomId("speaknow")
+                .setStyle(TextInputStyle.Paragraph)
+                .setValue(cfg.speakNowMessage.slice(0, 4000))
+                .setPlaceholder("So, {user}, du kannst jetzt sprechen...")
+                .setMinLength(1)
+                .setMaxLength(4000)
+                .setRequired(true),
+            ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
     // Mehrere Rollen auswählen → Modal öffnen (muss als Erstes kommen).
     if (group === "role" && sub === "select") {
       await interaction.showModal(buildRoleModal());
@@ -227,7 +259,8 @@ const command: {
           `**Stimme:** ${voiceLabel(cfg.voice)}\n` +
           `**Prüf-Rolle:** <@&${cfg.micRoleId}>\n` +
           `**Rollen:** ${roleMentions}\n` +
-          `**Text:** ${cfg.message}`;
+          `**Text:** ${cfg.message}\n` +
+          `**Sprech-Aufforderung:** ${cfg.speakNowMessage}`;
       } else if (sub === "channel") {
         cfg.channelId = interaction.options.getChannel("channel", true).id;
         message = `Verify-Kanal: <#${cfg.channelId}>`;
@@ -346,7 +379,8 @@ const command: {
     const guildId = interaction.guild.id;
 
     if (interaction.customId !== "verify:message:edit" &&
-        interaction.customId !== "verify:roles:edit") return;
+        interaction.customId !== "verify:roles:edit" &&
+        interaction.customId !== "speaknow") return;
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     try {
@@ -369,6 +403,24 @@ const command: {
         await saveVerifyConfig(guildId, cfg);
         await interaction.editReply({
           content: `Verify-Rollen gesetzt:\n${ids.map((id) => `<@&${id}>`).join(", ")}`,
+        });
+        return;
+      }
+
+      if (interaction.customId === "speaknow") {
+        const text = interaction.fields.getTextInputValue("speaknow")?.trim() ?? "";
+        if (!text) {
+          await interaction.editReply({
+            content: "Der Text darf nicht leer sein.",
+          });
+          return;
+        }
+        cfg.speakNowMessage = text;
+        await saveVerifyConfig(guildId, cfg);
+        await interaction.editReply({
+          content:
+            "Sprech-Aufforderung gespeichert. Sie wird gesprochen, danach " +
+            "bekommt das Mitglied sein Sprechrecht.",
         });
         return;
       }

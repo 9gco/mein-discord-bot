@@ -35,6 +35,11 @@ export interface VerifyConfig {
   message: string;
   /** Ansage, wenn das Mikrofon nicht brauchbar ist. */
   micFailedMessage: string;
+  /**
+   * Ansage, mit der das Sprechrecht freigeschaltet wird. Erst danach darf das
+   * Mitglied im Prüf-Kanal reden.
+   */
+  speakNowMessage: string;
   /** Ansage, wenn der Mikrofon-Check erfolgreich war. */
   micPassedMessage: string;
   /** Edge-TTS-Stimme (ShortName), z. B. "de-DE-KatjaNeural". */
@@ -58,8 +63,10 @@ const DEFAULT_CONFIG: VerifyConfig = {
   message:
     "Willkommen in der Whitelist, {user}. Schön, dass du den Weg zu uns gefunden hast. " +
     "Ich habe dich hierher in den Prüf-Kanal geholt. Damit wir dich im Voice-Chat gut " +
-    "verstehen, machen wir gleich einen kurzen Mikrofon-Check. Sprich nach meiner " +
-    "Aufforderung einfach ein paar Sätze, der Rest übernehme ich.",
+    "verstehen, machen wir gleich einen kurzen Mikrofon-Check.",
+  speakNowMessage:
+    "So, {user}, du kannst jetzt sprechen. Sag einfach ein paar Sätze für mich, " +
+    "ich höre zu.",
   micFailedMessage:
     "Prüfe bitte deine Discord-Sende-Einstellung und deine Eingabelautstärke, stelle " +
     "dein Mikrofon ein und komm anschließend noch einmal in den Warteraum.",
@@ -147,6 +154,10 @@ function normalizeConfig(stored: Partial<VerifyConfig> | undefined): VerifyConfi
       typeof stored?.micFailedMessage === "string" && stored.micFailedMessage
         ? stored.micFailedMessage
         : DEFAULT_CONFIG.micFailedMessage,
+    speakNowMessage:
+      typeof stored?.speakNowMessage === "string" && stored.speakNowMessage
+        ? stored.speakNowMessage
+        : DEFAULT_CONFIG.speakNowMessage,
     micPassedMessage:
       typeof stored?.micPassedMessage === "string" && stored.micPassedMessage
         ? stored.micPassedMessage

@@ -169,7 +169,8 @@ async function runVerify(
   }
 
   // 1) Rolle und Kanalrechte zuerst: das Mitglied braucht Connect, bevor es
-  //    in den Kanal bewegt wird, und Speak, bevor es reden soll.
+  //    in den Kanal bewegt wird. Das Sprechrecht bleibt hier noch aus – es
+  //    wird erst freigeschaltet, wenn der Bot zum Sprechen auffordert.
   const maySpeak = await grantMicRole(member, micRoleId);
   if (!maySpeak) {
     logger.warn("Ohne Prüf-Rolle kein Mikrofon-Check möglich.", {
@@ -179,15 +180,15 @@ async function runVerify(
     await releaseQueueSlot(guild, member);
     return;
   }
-  const armedOk = await ensureMicRoleChannelPermissions(
+  const reachable = await ensureMicRoleChannelPermissions(
     guild,
     verifyChannelId,
     micRoleId,
-    true,
+    false,
   );
-  if (!armedOk) {
+  if (!reachable) {
     logger.warn(
-      "Ohne Sprechrecht im Prüf-Kanal ist der Mic-Check nicht möglich.",
+      "Ohne Connect im Prüf-Kanal kann das Mitglied nicht hineinbewegt werden.",
       { guildId: guild.id, userId: member.id },
     );
     await releaseQueueSlot(guild, member);
@@ -251,12 +252,43 @@ async function runVerify(
         );
       }
 
+      // Erst zum Sprechen auffordern, dann das Sprechrecht freischalten. Vorher
+      // darf das Mitglied im Prüf-Kanal nur zuhören.
+      await speak(
+        guild,
+        verifyChannelId,
+        cfg.speakNowMessage.replace(/\{user\}/g, name),
+        cfg.voice,
+      );
+      const armedForAttempt = await ensureMicRoleChannelPermissions(
+        guild,
+        verifyChannelId,
+        micRoleId,
+        true,
+      );
+      if (!armedForAttempt) {
+        logger.warn("Sprechrecht konnte nicht freigeschaltet werden.", {
+          guildId: guild.id,
+          userId: member.id,
+        });
+        break;
+      }
+
       // Kurz Luft lassen, damit der Nutzer direkt losreden kann. Hier bewusst
       // KEIN Warten auf Stille – sonst würde eine sofort begonnene Antwort
       // vergehen, weil wir erst auf ihr Ende warten würden. Der Mic-Check
       // wartet von sich aus bis zu MIC_MAX_WAIT_MS auf den ersten Ton.
       await delay(MIC_START_DELAY_MS);
       const result = await runMicCheck(connection, member.id);
+
+      // Und direkt wieder stumm, bevor der Bot den Fehler erklärt.
+      await ensureMicRoleChannelPermissions(
+        guild,
+        verifyChannelId,
+        micRoleId,
+        false,
+      );
+
       lastResult = result;
 
       logger.info(`Mikrofon-Check Versuch ${attempt}/${MIC_MAX_ATTEMPTS}.`, {
