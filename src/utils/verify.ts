@@ -268,9 +268,12 @@ export async function connectToVerifyChannel(
  * - darf niemanden stummschalten oder tauben
  * - darf niemanden verschieben oder den Server anpingen
  *
- * Weil die Rolle nach der Prüfung wieder entfernt wird, ist das Sprechrecht
- * danach automatisch wieder weg. Der Aufruf ist idempotent und kann deshalb
- * bei jedem Start laufen.
+ * `armed = true` schaltet das Sprechrecht frei, `armed = false` sperrt es
+ * wieder. Die Rolle selbst bleibt beim Mitglied stehen – abgesichert wird über
+ * die Kanalrechte. Nach der Prüfung wird also `false` gesetzt, wodurch das
+ * Sprechrecht automatisch wieder weg ist, ohne dass die Rolle verschwindet.
+ *
+ * Der Aufruf ist idempotent und kann deshalb bei jedem Start laufen.
  *
  * Gibt false zurück, wenn der Bot keine Berechtigung dafür hat.
  */
@@ -278,6 +281,7 @@ export async function ensureMicRoleChannelPermissions(
   guild: Guild,
   channelId: string,
   micRoleId: string,
+  armed: boolean,
 ): Promise<boolean> {
   const channel = guild.channels.cache.get(channelId);
   if (!channel?.isVoiceBased()) {
@@ -292,32 +296,45 @@ export async function ensureMicRoleChannelPermissions(
     await channel.permissionOverwrites.edit(
       micRoleId,
       {
-        ViewChannel: true,
+        ViewChannel: armed,
+        Connect: armed,
+        Speak: armed,
         SendMessages: false,
-        Connect: true,
-        Speak: true,
         Stream: false,
+        // Mute/Deafen bleiben in beiden Zuständen gesetzt, damit niemand im
+        // Prüf-Kanal andere stummschalten oder tauben kann.
         MuteMembers: true,
         DeafenMembers: true,
         MoveMembers: false,
         MentionEveryone: false,
       },
-      { reason: "Verify: Sprechrecht nur während der Mikrofon-Prüfung" },
+      {
+        reason: armed
+          ? "Verify: Sprechrecht für die Mikrofon-Prüfung freischalten"
+          : "Verify: Sprechrecht nach der Mikrofon-Prüfung wieder sperren",
+      },
     );
-    logger.info("Kanalrechte der Prüf-Rolle gesetzt.", {
-      guildId: guild.id,
-      channelId,
-      roleId: micRoleId,
-    });
-    return true;
-  } catch (err) {
-    logger.error(
-      "Kanalrechte der Prüf-Rolle konnten nicht gesetzt werden – der Bot " +
-        "braucht 'Manage Channels' und die Rolle muss unter seiner höchsten Rolle liegen.",
+    logger.info(
+      armed
+        ? "Kanalrechte der Prüf-Rolle freigeschaltet."
+        : "Kanalrechte der Prüf-Rolle wieder gesperrt.",
       {
         guildId: guild.id,
         channelId,
         roleId: micRoleId,
+      },
+    );
+    return true;
+  } catch (err) {
+    logger.error(
+      "Kanalrechte der Prüf-Rolle konnten nicht gesetzt werden – der " +
+        "Bot braucht 'Manage Channels' und die Rolle muss unter seiner " +
+        "höchsten Rolle liegen.",
+      {
+        guildId: guild.id,
+        channelId,
+        roleId: micRoleId,
+        armed,
         error: err,
       },
     );
@@ -858,6 +875,53 @@ export function peekNextWaiting(guildId: string): QueueEntry | undefined {
   const entry = waitingEntries.get(entryKey(guildId, list[0]));
   if (!entry) return undefined;
   return entry;
+}
+
+/**
+ * Erster Wartender, für den `isEligible` true ist – ohne ihn zu entfernen.
+ * Damit lässt sich ein Mitglied in Abklingzeit überspringen, ohne die
+ * FIFO-Reihenfolge der übrigen zu ändern.
+ */
+export function peekFirstEligible(
+  guildId: string,
+  isEligible: (userId: string) => boolean,
+): QueueEntry | undefined {
+  const list = waitingOrder.get(guildId);
+  if (!list) return undefined;
+  for (const userId of list) {
+    const entry = waitingEntries.get(entryKey(guildId, userId));
+    if (entry && isEligible(userId)) return entry;
+  }
+  return undefined;
+}
+
+/**
+ * "guildId:userId" → Zeitstempel, ab dem wieder geprüft werden darf.
+ * Nach einem endgültig fehlgeschlagenen Check wartet das Mitglied, statt die
+ * ganze Schlange mit einem kaputten Mikrofon aufzuhalten.
+ */
+const cooldowns = new Map<string, number>();
+
+/** Setzt eine Wartezeit für ein Mitglied. */
+export function setCooldown(guildId: string, userId: string, ms: number): void {
+  cooldowns.set(entryKey(guildId, userId), Date.now() + ms);
+}
+
+/** Restzeit in Millisekunden, 0 wenn das Mitglied sofort dran ist. */
+export function cooldownRemaining(guildId: string, userId: string): number {
+  const until = cooldowns.get(entryKey(guildId, userId));
+  if (until === undefined) return 0;
+  const left = until - Date.now();
+  if (left <= 0) {
+    cooldowns.delete(entryKey(guildId, userId));
+    return 0;
+  }
+  return left;
+}
+
+/** Hebt eine Wartezeit auf, z. B. nach erfolgreicher Prüfung. */
+export function clearCooldown(guildId: string, userId: string): void {
+  cooldowns.delete(entryKey(guildId, userId));
 }
 
 /**

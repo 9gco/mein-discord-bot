@@ -8,16 +8,20 @@ import {
 import { logger } from "../utils/logger.js";
 import {
   applyQueueNickname,
+  clearCooldown,
   connectToVerifyChannel,
+  cooldownRemaining,
   dequeueWaiting,
   enqueueWaiting,
+  ensureMicRoleChannelPermissions,
   fetchTtsAudio,
   getVerifyConfig,
-  peekNextWaiting,
+  peekFirstEligible,
   playBuffer,
   renumberWaiting,
   runExclusive,
   runMicCheck,
+  setCooldown,
   spokenName,
   stripQueueNickname,
   waitForSilence,
@@ -39,19 +43,32 @@ function busyKey(guildId: string, userId: string): string {
 /** Kurze Pause, damit der Nutzer nach der Ansage losreden kann. */
 const MIC_START_DELAY_MS = 1_200;
 
+/**
+ * Wie viele Prüfversuche ein Mitglied im Prüf-Kanal bekommt, bevor es in die
+ * Wartezeit muss. Die meisten Fehler sind Einstellungsprobleme, die sich
+ * direkt korrigieren lassen – deshalb zwei zusätzliche Versuche.
+ */
+const MIC_MAX_ATTEMPTS = 3;
+
+/**
+ * Wartezeit nach dem letzten Fehlversuch. Das Mitglied bleibt dabei einfach in
+ * der Warteschlange, wird aber übersprungen, während die Zeit läuft – so
+ * blockiert es niemanden.
+ */
+const MIC_COOLDOWN_MS = 60_000;
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Vergibt die Prüf-Rollen. `micRoleId` gibt dem Mitglied nur während der
- * Prüfung Sprechberechtigung und wird danach wieder genommen; die dauerhaften
- * Rollen aus `cfg.roles` bleiben unangetastet.
+ * Gibt dem Mitglied die Prüf-Rolle. Die Rolle bleibt danach dauerhaft
+ * bestehen – abgesichert wird über die Kanalrechte, nicht über die Rolle.
  */
 async function grantMicRole(member: GuildMember, micRoleId: string): Promise<boolean> {
   if (member.roles.cache.has(micRoleId)) return true;
   try {
-    await member.roles.add(micRoleId, "Mikrofon-Check: Sprechberechtigung");
+    await member.roles.add(micRoleId, "Freischaltung für den Mikrofon-Check");
     return true;
   } catch (err) {
     logger.error("Prüf-Rolle konnte nicht vergeben werden.", {
@@ -61,20 +78,6 @@ async function grantMicRole(member: GuildMember, micRoleId: string): Promise<boo
       error: err,
     });
     return false;
-  }
-}
-
-async function revokeMicRole(member: GuildMember, micRoleId: string): Promise<void> {
-  if (!member.roles.cache.has(micRoleId)) return;
-  try {
-    await member.roles.remove(micRoleId, "Mikrofon-Check beendet");
-  } catch (err) {
-    logger.error("Prüf-Rolle konnte nicht entfernt werden.", {
-      guildId: member.guild.id,
-      userId: member.id,
-      roleId: micRoleId,
-      error: err,
-    });
   }
 }
 
@@ -146,8 +149,12 @@ function describeMicProblem(result: MicCheckResult): string {
 
 /**
  * Vollständiger Prüf-Durchlauf für ein Mitglied:
- * in den Prüf-Kanal ziehen → Ansage → Mikrofon-Check → Ergebnis melden →
- * Rechte zurücksetzen → aus dem Call entfernen.
+ * in den Prüf-Kanal ziehen → Ansage → Mikrofon-Check (bis zu
+ * `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden → Sprechrecht sperren →
+ * Wartezeit bei Fehlschlag → aus dem Call entfernen.
+ *
+ * Die Prüf-Rolle bleibt dauerhaft am Mitglied. Verhindert wird weiteres
+ * Sprechen über die Kanalrechte, die am Ende wieder gesperrt werden.
  */
 async function runVerify(
   guild: Guild,
@@ -194,10 +201,8 @@ async function runVerify(
   const name = spokenName(member.displayName);
 
   try {
-    // 3) Begrüßung mit der Check-Aufforderung.
-    await speak(guild, verifyChannelId, cfg.message.replace(/\{user\}/g, name), cfg.voice);
-
-    // 4) Sprechberechtigung für die Prüfung geben.
+    // 3) Rolle und Sprechrecht bereitstellen. Die Rolle bleibt danach
+    //    dauerhaft, nur die Kanalrechte werden am Ende wieder gesperrt.
     const maySpeak = await grantMicRole(member, micRoleId);
     if (!maySpeak) {
       logger.warn("Ohne Prüf-Rolle kein Mikrofon-Check möglich.", {
@@ -206,16 +211,83 @@ async function runVerify(
       });
       return;
     }
+    const armedOk = await ensureMicRoleChannelPermissions(
+      guild,
+      verifyChannelId,
+      micRoleId,
+      true,
+    );
+    if (!armedOk) {
+      logger.warn(
+        "Ohne Sprechrecht im Prüf-Kanal ist der Mic-Check nicht möglich.",
+        { guildId: guild.id, userId: member.id },
+      );
+      return;
+    }
 
-    // 5) Kurz Luft lassen, damit der Nutzer direkt losreden kann. Hier bewusst
-    //    KEIN Warten auf Stille – sonst würde eine sofort begonnene Antwort
-    //    vergehen, weil wir erst auf ihr Ende warten würden. Der Mic-Check
-    //    wartet von sich aus bis zu MIC_MAX_WAIT_MS auf den ersten Ton.
-    await delay(MIC_START_DELAY_MS);
-    const result = await runMicCheck(connection, member.id);
+    // 4) Begrüßung mit der Check-Aufforderung.
+    await speak(
+      guild,
+      verifyChannelId,
+      cfg.message.replace(/\{user\}/g, name),
+      cfg.voice,
+    );
 
-    if (result.ok) {
-      // 6a) Erfolg: Ergebnis melden und die dauerhaften Rollen geben.
+    // 5) Mehrere Versuche direkt nacheinander. Die meisten Fehler sind
+    //    Einstellungsprobleme, die sich sofort korrigieren lassen.
+    let passed = false;
+    let lastResult: MicCheckResult | undefined;
+
+    for (let attempt = 1; attempt <= MIC_MAX_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        await speak(
+          guild,
+          verifyChannelId,
+          `Kein Problem, wir versuchen es nochmal. Diesmal ist dein ` +
+            `Versuch Nummer ${attempt} von ${MIC_MAX_ATTEMPTS}.`,
+          cfg.voice,
+        );
+      }
+
+      // Kurz Luft lassen, damit der Nutzer direkt losreden kann. Hier bewusst
+      // KEIN Warten auf Stille – sonst würde eine sofort begonnene Antwort
+      // vergehen, weil wir erst auf ihr Ende warten würden. Der Mic-Check
+      // wartet von sich aus bis zu MIC_MAX_WAIT_MS auf den ersten Ton.
+      await delay(MIC_START_DELAY_MS);
+      const result = await runMicCheck(connection, member.id);
+      lastResult = result;
+
+      logger.info(`Mikrofon-Check Versuch ${attempt}/${MIC_MAX_ATTEMPTS}.`, {
+        guildId: guild.id,
+        userId: member.id,
+        ok: result.ok,
+        reason: result.reason,
+        speechMs: result.speechMs,
+        level: result.level,
+        peak: result.peak,
+        snr: result.snr,
+      });
+
+      if (result.ok) {
+        passed = true;
+        break;
+      }
+
+      // Grund nennen, aber erst nach dem letzten Versuch die Zusatzanweisung.
+      const problem = describeMicProblem(result);
+      const isLast = attempt === MIC_MAX_ATTEMPTS;
+      await speak(
+        guild,
+        verifyChannelId,
+        isLast
+          ? `${problem} ${cfg.micFailedMessage.replace(/\{user\}/g, name)}`
+          : problem,
+        cfg.voice,
+      );
+    }
+
+    if (passed) {
+      // 6a) Erfolg: Ergebnis melden, dauerhafte Rollen geben, Wartezeit lösen.
       await speak(
         guild,
         verifyChannelId,
@@ -223,7 +295,9 @@ async function runVerify(
         cfg.voice,
       );
 
-      const rolesToAdd = cfg.roles.filter((roleId) => !member.roles.cache.has(roleId));
+      const rolesToAdd = cfg.roles.filter(
+        (roleId) => !member.roles.cache.has(roleId),
+      );
       if (rolesToAdd.length > 0) {
         try {
           await member.roles.add(rolesToAdd, "Automatische Verifizierung");
@@ -236,23 +310,36 @@ async function runVerify(
           });
         }
       }
+      clearCooldown(guild.id, member.id);
     } else {
-      // 6b) Mikrofon unbrauchbar: genau sagen, was gemessen wurde, und
-      //     nichts freischalten.
-      logger.info("Mikrofon-Check fehlgeschlagen.", {
+      // 6b) Alle Versuche durch: Wartezeit setzen, damit die Schlange
+      //     weiterläuft. Wer in der Zwischenzeit wieder in den Warteraum
+      //     kommt, wird solange übersprungen.
+      const seconds = Math.ceil(MIC_COOLDOWN_MS / 1000);
+      setCooldown(guild.id, member.id, MIC_COOLDOWN_MS);
+      logger.info("Wartezeit nach Fehlschlag gesetzt.", {
         guildId: guild.id,
         userId: member.id,
-        reason: result.reason,
-        speechMs: result.speechMs,
-        level: result.level,
-        peak: result.peak,
-        snr: result.snr,
+        reason: lastResult?.reason,
+        cooldownMs: MIC_COOLDOWN_MS,
       });
-      const problem = describeMicProblem(result);
+      // Wecker, damit die Schlange weiterläuft, sobald die Zeit abgelaufen
+      // ist – VoiceStateUpdate feuert dafür nicht.
+      const timer = setTimeout(
+        () => {
+          void getVerifyConfig(guild.id).then((latest) => {
+            startNextIfIdle(guild, latest);
+          });
+        },
+        MIC_COOLDOWN_MS + 500,
+      );
+      // Der Timer darf den Prozess nicht am Leben halten.
+      timer.unref?.();
       await speak(
         guild,
         verifyChannelId,
-        `${problem} ${cfg.micFailedMessage.replace(/\{user\}/g, name)}`,
+        `Komm bitte in ${seconds} Sekunden noch einmal in den Warteraum, ` +
+          `dann versuchen wir es erneut.`,
         cfg.voice,
       );
     }
@@ -263,8 +350,13 @@ async function runVerify(
       error: err,
     });
   } finally {
-    // 7) Nur die Prüf-Rolle zurücknehmen, alle anderen Rollen bleiben.
-    await revokeMicRole(member, micRoleId);
+    // 7) Sprechrecht wieder sperren. Die Rolle selbst bleibt bestehen.
+    await ensureMicRoleChannelPermissions(
+      guild,
+      verifyChannelId,
+      micRoleId,
+      false,
+    );
     dequeueWaiting(guild.id, member.id);
     // Die Nummern der Wartenden rücken nach.
     await renumberWaiting(guild);
@@ -275,10 +367,17 @@ async function runVerify(
   }
 }
 
-/** Startet die Prüfung des nächsten Wartenden, falls noch keiner läuft. */
+/**
+ * Startet die Prüfung des nächsten Wartenden, falls noch keiner läuft. Wer noch
+ * in der Wartezeit ist, wird übersprungen – so blockiert ein fehlgeschlagenes
+ * Mikrofon nicht die ganze Schlange.
+ */
 function startNextIfIdle(guild: Guild, cfg: VerifyConfig): void {
   if (activeGuild.has(guild.id)) return;
-  const next = peekNextWaiting(guild.id);
+  const next = peekFirstEligible(
+    guild.id,
+    (userId) => cooldownRemaining(guild.id, userId) === 0,
+  );
   if (!next) return;
 
   const member = guild.members.cache.get(next.userId);

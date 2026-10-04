@@ -52,6 +52,55 @@ describe("Warteschlange", () => {
   });
 });
 
+describe("Wartezeit nach Fehlschlag", () => {
+  const COOLDOWN = 60_000;
+
+  it("gibt ohne Wartezeit sofort frei", () => {
+    expect(verify.cooldownRemaining("4000", "a")).toBe(0);
+  });
+
+  it("setzt eine Wartezeit und zählt sie herunter", () => {
+    verify.setCooldown("4000", "neu", COOLDOWN);
+    const rest = verify.cooldownRemaining("4000", "neu");
+    expect(rest).toBeGreaterThan(COOLDOWN - 5_000);
+    expect(rest).toBeLessThanOrEqual(COOLDOWN);
+  });
+
+  it("gilt nur für dasselbe Mitglied", () => {
+    verify.setCooldown("4000", "a", COOLDOWN);
+    expect(verify.cooldownRemaining("4000", "b")).toBe(0);
+  });
+
+  it("lässt sich nach erfolgreicher Prüfung aufheben", () => {
+    verify.setCooldown("4000", "c", COOLDOWN);
+    verify.clearCooldown("4000", "c");
+    expect(verify.cooldownRemaining("4000", "c")).toBe(0);
+  });
+
+  it("überspringt Wartende in Wartezeit, ohne die Reihenfolge zu ändern", () => {
+    verify.enqueueWaiting("5000", "wartet", null, "Wartet");
+    verify.enqueueWaiting("5000", "wartet2", null, "Wartet2");
+    verify.enqueueWaiting("5000", "drangeht", null, "Drangeht");
+
+    verify.setCooldown("5000", "wartet", COOLDOWN);
+
+    // Wartender in Wartezeit wird übersprungen, der nächste ist dran.
+    expect(verify.peekFirstEligible("5000", (id) => verify.cooldownRemaining("5000", id) === 0)?.userId).toBe(
+      "wartet2",
+    );
+    // Der übersprungene bleibt trotzdem in der Schlange.
+    expect(verify.peekNextWaiting("5000")?.userId).toBe("wartet");
+  });
+
+  it("liefert undefined, wenn alle in Wartezeit sind", () => {
+    verify.enqueueWaiting("6000", "a", null, "Alpha");
+    verify.setCooldown("6000", "a", COOLDOWN);
+    expect(
+      verify.peekFirstEligible("6000", (id) => verify.cooldownRemaining("6000", id) === 0),
+    ).toBeUndefined();
+  });
+});
+
 describe("Namensnummern", () => {
   it("entfernt das '(n) '-Präfix, damit die Zahl nie vorgelesen wird", () => {
     expect(verify.spokenName("(3) Charlie")).toBe("Charlie");
