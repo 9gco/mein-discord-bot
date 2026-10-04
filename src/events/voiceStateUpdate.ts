@@ -149,12 +149,12 @@ function describeMicProblem(result: MicCheckResult): string {
 
 /**
  * Vollständiger Prüf-Durchlauf für ein Mitglied:
- * in den Prüf-Kanal ziehen → Ansage → Mikrofon-Check (bis zu
- * `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden → Sprechrecht sperren →
- * Wartezeit bei Fehlschlag → aus dem Call entfernen.
+ * Rolle geben und Sprechrecht freischalten → in den Prüf-Kanal ziehen → Ansage
+ * → Mikrofon-Check (bis zu `MIC_MAX_ATTEMPTS` Versuche) → Ergebnis melden →
+ * Sprechrecht sperren → Wartezeit bei Fehlschlag → aus dem Call entfernen.
  *
- * Die Prüf-Rolle bleibt dauerhaft am Mitglied. Verhindert wird weiteres
- * Sprechen über die Kanalrechte, die am Ende wieder gesperrt werden.
+ * Die Prüf-Rolle bleibt dauerhaft am Mitglied. Das Sprechrecht wird von der
+ * Rolle über die Kanalrechte gesteuert: an während der Prüfung, aus danach.
  */
 async function runVerify(
   guild: Guild,
@@ -168,7 +168,33 @@ async function runVerify(
     return;
   }
 
-  // 1) Aus dem Warteraum in den Prüf-Kanal holen.
+  // 1) Rolle und Kanalrechte zuerst: das Mitglied braucht Connect, bevor es
+  //    in den Kanal bewegt wird, und Speak, bevor es reden soll.
+  const maySpeak = await grantMicRole(member, micRoleId);
+  if (!maySpeak) {
+    logger.warn("Ohne Prüf-Rolle kein Mikrofon-Check möglich.", {
+      guildId: guild.id,
+      userId: member.id,
+    });
+    await releaseQueueSlot(guild, member);
+    return;
+  }
+  const armedOk = await ensureMicRoleChannelPermissions(
+    guild,
+    verifyChannelId,
+    micRoleId,
+    true,
+  );
+  if (!armedOk) {
+    logger.warn(
+      "Ohne Sprechrecht im Prüf-Kanal ist der Mic-Check nicht möglich.",
+      { guildId: guild.id, userId: member.id },
+    );
+    await releaseQueueSlot(guild, member);
+    return;
+  }
+
+  // 2) Aus dem Warteraum in den Prüf-Kanal holen.
   if (member.voice.channelId !== verifyChannelId) {
     try {
       await member.voice.setChannel(verifyChannelId);
@@ -184,7 +210,7 @@ async function runVerify(
     }
   }
 
-  // 2) Im Prüf-Kanal zählt der echte Name, die "(n) "-Nummer fällt weg und
+  // 3) Im Prüf-Kanal zählt der echte Name, die "(n) "-Nummer fällt weg und
   //    wird auch nicht vorgelesen.
   await stripQueueNickname(guild, member.id);
 
@@ -201,30 +227,6 @@ async function runVerify(
   const name = spokenName(member.displayName);
 
   try {
-    // 3) Rolle und Sprechrecht bereitstellen. Die Rolle bleibt danach
-    //    dauerhaft, nur die Kanalrechte werden am Ende wieder gesperrt.
-    const maySpeak = await grantMicRole(member, micRoleId);
-    if (!maySpeak) {
-      logger.warn("Ohne Prüf-Rolle kein Mikrofon-Check möglich.", {
-        guildId: guild.id,
-        userId: member.id,
-      });
-      return;
-    }
-    const armedOk = await ensureMicRoleChannelPermissions(
-      guild,
-      verifyChannelId,
-      micRoleId,
-      true,
-    );
-    if (!armedOk) {
-      logger.warn(
-        "Ohne Sprechrecht im Prüf-Kanal ist der Mic-Check nicht möglich.",
-        { guildId: guild.id, userId: member.id },
-      );
-      return;
-    }
-
     // 4) Begrüßung mit der Check-Aufforderung.
     await speak(
       guild,
