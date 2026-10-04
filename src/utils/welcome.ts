@@ -10,7 +10,7 @@ export const DEFAULT_ROLE_IDS = [
 
 /** Logo, das als Server-Logo oben rechts (Thumbnail) verwendet wird. */
 export const DEFAULT_LOGO_URL =
-  "https://s3.vybebot.ai/images/projects/6lQtoY60wxjr/assets/3c118c36459e6fbfd2db2f4385d9a56e2d19e133591c8b2bad9e3cc6b1aad3ed.png";
+  "";
 
 export const DEFAULT_SERVER_NAME = "Vendetta Roleplay";
 
@@ -38,8 +38,7 @@ const DEFAULTS: Omit<WelcomeConfig, "channelId" | "bannerUrl"> = {
 /** Pro-Guild gespeicherte Willkommens-Einstellungen. */
 export const welcomeStore = createStorage<WelcomeConfig>(
   loadConfig(),
-  "welcome",
-);
+  "welcome",);
 
 /**
  * Liest die Willkommens-Config eines Servers. Gespeicherte Daten können älter
@@ -82,7 +81,6 @@ export function buildWelcomeEmbed(
         `langen und positiven Aufenthalt auf unserem Server. Lies sie dir aufmerksam durch!\n\n` +
         `Viel Spaß und eine großartige Zeit auf unserem Server! 🚀`,
     )
-    .setFooter({ text: `Built with VybeBot.ai | ${serverName}` })
     .setTimestamp();
 
   if (logo) embed.setThumbnail(logo);

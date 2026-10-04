@@ -116,7 +116,7 @@ const command: BotCommand = {
         await interaction.editReply(
           `✅ Key \`${key}\` wurde per DM an <@${user.id}> gesendet.\n` +
             `Sobald der Analyst mit ${APPROVE_EMOJI} auf die Nachricht reagiert, wird der Key automatisch als **VERBRAUCHT** markiert.\n\n` +
-            `*Built with VybeBot.ai*`,
+            ``,
         );
         return;
       }
@@ -142,7 +142,7 @@ const command: BotCommand = {
         });
 
         await interaction.editReply(
-          `**Key-Status für <@${user.id}>**\n${lines.join("\n")}\n\n*Built with VybeBot.ai*`,
+          `**Key-Status für <@${user.id}>**\n${lines.join("\n")}\n\n`,
         );
         return;
       }
@@ -168,7 +168,7 @@ const command: BotCommand = {
               .catch(() => null);
             if (msg) {
               await msg.edit(
-                "# 🚫 KEY WIDERRUFEN\n\nDieser Key ist nicht mehr gültig.\n\n*Built with VybeBot.ai*",
+                "# 🚫 KEY WIDERRUFEN\n\nDieser Key ist nicht mehr gültig.\n\n",
               );
             }
           }
@@ -197,7 +197,7 @@ const command: BotCommand = {
         return `${state} \`${e.key}\` → <@${e.targetUserId}>`;
       });
       await interaction.editReply(
-        `**Letzte Key-Zuweisungen**\n${lines.join("\n")}\n\n*Built with VybeBot.ai*`,
+        `**Letzte Key-Zuweisungen**\n${lines.join("\n")}\n\n`,
       );
     } catch (err) {
       logger.error("Error in /analyse.", { error: err });

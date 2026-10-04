@@ -35,7 +35,7 @@ const event: BotEvent<Events.ClientReady> = {
 
   async execute(client: Client<true>): Promise<void> {
     const { storage } = loadConfig();
-    client.user.setActivity("Built with VybeBot.ai");
+    ;
     logger.info("Bot is online.", {
       tag: client.user.tag,
       dataDir: storage.dir,

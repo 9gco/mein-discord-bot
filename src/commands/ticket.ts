@@ -610,7 +610,7 @@ const command: BotCommand = {
         .setColor(cfg.color)
         .setTitle(`${category.emoji} ${category.label}`)
         .setDescription(welcomeMessage)
-        .setFooter({ text: "Built with VybeBot.ai | Vendetta Roleplay" })
+        
         .setTimestamp();
 
       const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(

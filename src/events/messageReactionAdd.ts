@@ -58,7 +58,7 @@ const event: BotEvent<Events.MessageReactionAdd> = {
         current +
           "\n\n✅ **Key verbraucht.** (" +
           new Date().toLocaleString("de-DE") +
-          ")\n*Built with VybeBot.ai*",
+          ")\n",
       );
     } catch (err) {
       logger.warn("Could not update consumed key message.", {
