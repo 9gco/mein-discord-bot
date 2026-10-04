@@ -1,0 +1,30 @@
+{
+  "name": "bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "discord-check"
+  },
+  "dependencies": {
+    "@discordjs/voice": "0.19.2",
+    "discord.js": "14.27.0",
+    "dotenv": "^16.4.0",
+    "ffmpeg-static": "5.3.0",
+    "msedge-tts": "2.0.9",
+    "opusscript": "0.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.3.0",
+    "vitest": "^3.2.4",
+    "@vybebot/eslint-plugin-discord": "^1.2.0",
+    "eslint": "^9.22.0"
+  },
+  "overrides": {
+    "discord-api-types": "0.38.53"
+  }
+}
