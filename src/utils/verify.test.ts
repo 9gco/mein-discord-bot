@@ -187,3 +187,24 @@ describe("Mikrofon-Bewertung", () => {
     );
   });
 });
+
+describe("Encoding-Reparatur", () => {
+  // Bewusst so gebaut, wie Text nach doppeltem Kodieren aussieht: die
+  // Umlaut-Buchstaben stehen als zwei Zeichen da.
+  const kaputt = "Deutsch – Katja, Schön, Prüfe, anschließend";
+
+  it("repariert doppelt kodierten Text", () => {
+    expect(verify.repairMojibake(kaputt)).toBe(
+      "Deutsch – Katja, Schön, Prüfe, anschließend",
+    );
+  });
+
+  it("lässt korrekten Text unverändert", () => {
+    const ok = "Deutsch – Katja, schön, öffne";
+    expect(verify.repairMojibake(ok)).toBe(ok);
+  });
+
+  it("lässt reinen ASCII-Text unverändert", () => {
+    expect(verify.repairMojibake("nur ascii")).toBe("nur ascii");
+  });
+});

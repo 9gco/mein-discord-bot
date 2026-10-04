@@ -1,4 +1,4 @@
-﻿import { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import {
   AudioPlayerStatus,
   EndBehaviorType,
@@ -19,20 +19,20 @@ import { loadConfig } from "../config.js";
 import { createStorage } from "./storage.js";
 import { logger } from "./logger.js";
 
-// Stelle sicher, dass @discordjs/voice zum Transkodieren von MP3 â†’ Opus
-// das gebÃ¼ndelte ffmpeg von ffmpeg-static nutzt.
+// Stelle sicher, dass @discordjs/voice zum Transkodieren von MP3 → Opus
+// das gebündelte ffmpeg von ffmpeg-static nutzt.
 if (ffmpeg) process.env.FFMPEG_PATH = ffmpeg;
 
 export interface VerifyConfig {
   enabled: boolean;
-  /** Voice-Kanal, in dem geprÃ¼ft wird (Standard: VERIFY_CHANNEL_ID). */
+  /** Voice-Kanal, in dem geprüft wird (Standard: VERIFY_CHANNEL_ID). */
   channelId?: string;
-  /** Voice-Kanal, in dem Mitglieder zunÃ¤chst warten (Standard: WAITING_CHANNEL_ID). */
+  /** Voice-Kanal, in dem Mitglieder zunächst warten (Standard: WAITING_CHANNEL_ID). */
   waitingChannelId?: string;
 /**
- * Altbestand aus früheren Versionen: es gab einmal eine Prüf-Rolle, die
- * dauerhaft vergeben wurde. Wird nicht mehr verwendet, bleibt nur im Typ,
- * damit gespeicherte Konfigurationen geladen werden können.
+ * Altbestand aus früheren Versionen: es gab einmal eine Prüf-Rolle. Wird nicht
+ * mehr verwendet, das Sprechrecht hängt jetzt direkt am Mitglied. Nur noch
+ * im Typ, damit gespeicherte Konfigurationen weiterhin geladen werden können.
  */
   micRoleId?: string;
   /** Der Text, den der Bot im Voice-Kanal vorliest. {user} = Name des Nutzers. */
@@ -41,7 +41,7 @@ export interface VerifyConfig {
   micFailedMessage: string;
   /**
    * Ansage, mit der das Sprechrecht freigeschaltet wird. Erst danach darf das
-   * Mitglied im PrÃ¼f-Kanal reden.
+   * Mitglied im Prüf-Kanal reden.
    */
   speakNowMessage: string;
   /** Ansage, wenn der Mikrofon-Check erfolgreich war. */
@@ -60,11 +60,10 @@ export const VERIFY_CHANNEL_ID = "1547676303149244508";
  * Rolle, die dauerhaft an geprüfte Mitglieder vergeben wird. Sie bleibt
  * dauerhaft und wird vom Bot nicht angefasst.
  *
- * Für den Zugang zum Prüf-Kanal ist sie nicht zuständig: `@everyone` hat im
- * Prüf-Kanal weder "Kanäle ansehen" noch "Verbinden", damit sich niemand
- * selbst eintragen kann. Der Bot zieht seine Wartenden mit "Move Members"
- * trotzdem hinein, und "Senden" steht für alle offen, damit sie dort reden
- * können.
+ * Für den Zugang zum Prüf-Kanal ist sie nicht zuständig: `@everyone` hat dort
+ * weder "Kanäle ansehen" noch "Verbinden", damit sich niemand selbst eintragen
+ * kann. Der Bot zieht seine Wartenden mit "Move Members" trotzdem hinein, und
+ * "Senden" steht offen, damit sie dort reden können.
  */
 export const MIC_CHECK_ROLE_ID = "1547675358948753418";
 
@@ -74,18 +73,18 @@ const DEFAULT_CONFIG: VerifyConfig = {
   waitingChannelId: WAITING_CHANNEL_ID,
   
   message:
-    "Willkommen in der Whitelist, {user}. SchÃ¶n, dass du den Weg zu uns gefunden hast. " +
-    "Ich habe dich hierher in den PrÃ¼f-Kanal geholt. Damit wir dich im Voice-Chat gut " +
+    "Willkommen in der Whitelist, {user}. Schön, dass du den Weg zu uns gefunden hast. " +
+    "Ich habe dich hierher in den Prüf-Kanal geholt. Damit wir dich im Voice-Chat gut " +
     "verstehen, machen wir gleich einen kurzen Mikrofon-Check.",
   speakNowMessage:
-    "So, {user}, du kannst jetzt sprechen. Sag einfach ein paar SÃ¤tze fÃ¼r mich, " +
-    "ich hÃ¶re zu.",
+    "So, {user}, du kannst jetzt sprechen. Sag einfach ein paar Sätze für mich, " +
+    "ich höre zu.",
   micFailedMessage:
-    "PrÃ¼fe bitte deine Discord-Sende-Einstellung und deine EingabelautstÃ¤rke, stelle " +
-    "dein Mikrofon ein und komm anschlieÃŸend noch einmal in den Warteraum.",
+    "Prüfe bitte deine Discord-Sende-Einstellung und deine Eingabelautstärke, stelle " +
+    "dein Mikrofon ein und komm anschließend noch einmal in den Warteraum.",
   micPassedMessage:
-    "Perfekt, {user}, dein Mikrofon funktioniert einwandfrei. Ich schlieÃŸe die " +
-    "PrÃ¼fung ab und schalte die KanÃ¤le fÃ¼r dich frei.",
+    "Perfekt, {user}, dein Mikrofon funktioniert einwandfrei. Ich schließe die " +
+    "Prüfung ab und schalte die Kanäle für dich frei.",
   voice: "de-DE-KatjaNeural",
   roles: [],
 };
@@ -93,46 +92,46 @@ const DEFAULT_CONFIG: VerifyConfig = {
 export const verifyStore = createStorage<VerifyConfig>(loadConfig(), "verify");
 
 /**
- * Kuratierte, kostenlose Edge-TTS-Stimmen (kein API-Key nÃ¶tig).
- * Die Namen wurden gegen die echte Stimmen-Liste des Dienstes geprÃ¼ft.
- * Discord erlaubt maximal 25 AuswahlmÃ¶glichkeiten pro Option.
+ * Kuratierte, kostenlose Edge-TTS-Stimmen (kein API-Key nötig).
+ * Die Namen wurden gegen die echte Stimmen-Liste des Dienstes geprüft.
+ * Discord erlaubt maximal 25 Auswahlmöglichkeiten pro Option.
  */
 export const VERIFY_VOICES = [
   // Deutsch
-  { name: "de-DE-KatjaNeural", label: "Deutsch â€“ Katja (weiblich)" },
-  { name: "de-DE-AmalaNeural", label: "Deutsch â€“ Amala (weiblich)" },
+  { name: "de-DE-KatjaNeural", label: "Deutsch – Katja (weiblich)" },
+  { name: "de-DE-AmalaNeural", label: "Deutsch – Amala (weiblich)" },
   {
     name: "de-DE-SeraphinaMultilingualNeural",
-    label: "Deutsch â€“ Seraphina (weiblich, multilingual)",
+    label: "Deutsch – Seraphina (weiblich, multilingual)",
   },
-  { name: "de-DE-ConradNeural", label: "Deutsch â€“ Conrad (mÃ¤nnlich)" },
+  { name: "de-DE-ConradNeural", label: "Deutsch – Conrad (männlich)" },
   {
     name: "de-DE-FlorianMultilingualNeural",
-    label: "Deutsch â€“ Florian (mÃ¤nnlich, multilingual)",
+    label: "Deutsch – Florian (männlich, multilingual)",
   },
-  { name: "de-DE-KillianNeural", label: "Deutsch â€“ Killian (mÃ¤nnlich, jung)" },
-  { name: "de-AT-IngridNeural", label: "Ã–sterreichisch â€“ Ingrid (weiblich)" },
-  { name: "de-AT-JonasNeural", label: "Ã–sterreichisch â€“ Jonas (mÃ¤nnlich)" },
-  { name: "de-CH-LeniNeural", label: "Schweizerdeutsch â€“ Leni (weiblich)" },
-  { name: "de-CH-JanNeural", label: "Schweizerdeutsch â€“ Jan (mÃ¤nnlich)" },
+  { name: "de-DE-KillianNeural", label: "Deutsch – Killian (männlich, jung)" },
+  { name: "de-AT-IngridNeural", label: "Österreichisch – Ingrid (weiblich)" },
+  { name: "de-AT-JonasNeural", label: "Österreichisch – Jonas (männlich)" },
+  { name: "de-CH-LeniNeural", label: "Schweizerdeutsch – Leni (weiblich)" },
+  { name: "de-CH-JanNeural", label: "Schweizerdeutsch – Jan (männlich)" },
   // Weitere Sprachen
-  { name: "en-US-AvaNeural", label: "Englisch (US) â€“ Ava (weiblich)" },
-  { name: "en-US-AndrewNeural", label: "Englisch (US) â€“ Andrew (mÃ¤nnlich)" },
-  { name: "en-GB-LibbyNeural", label: "Englisch (UK) â€“ Libby (weiblich)" },
-  { name: "tr-TR-EmelNeural", label: "TÃ¼rkisch â€“ Emel (weiblich)" },
-  { name: "tr-TR-AhmetNeural", label: "TÃ¼rkisch â€“ Ahmet (mÃ¤nnlich)" },
-  { name: "fr-FR-DeniseNeural", label: "FranzÃ¶sisch â€“ Denise (weiblich)" },
-  { name: "es-ES-AlvaroNeural", label: "Spanisch â€“ Ãlvaro (mÃ¤nnlich)" },
-  { name: "it-IT-ElsaNeural", label: "Italienisch â€“ Elsa (weiblich)" },
-  { name: "pl-PL-ZofiaNeural", label: "Polnisch â€“ Zofia (weiblich)" },
-  { name: "ru-RU-SvetlanaNeural", label: "Russisch â€“ Svetlana (weiblich)" },
-  { name: "nl-NL-FennaNeural", label: "NiederlÃ¤ndisch â€“ Fenna (weiblich)" },
-  { name: "pt-BR-FranciscaNeural", label: "Portugiesisch (BR) â€“ Francisca" },
-  { name: "ar-SA-ZariyahNeural", label: "Arabisch â€“ Zariyah (weiblich)" },
-  { name: "ja-JP-NanamiNeural", label: "Japanisch â€“ Nanami (weiblich)" },
+  { name: "en-US-AvaNeural", label: "Englisch (US) – Ava (weiblich)" },
+  { name: "en-US-AndrewNeural", label: "Englisch (US) – Andrew (männlich)" },
+  { name: "en-GB-LibbyNeural", label: "Englisch (UK) – Libby (weiblich)" },
+  { name: "tr-TR-EmelNeural", label: "Türkisch – Emel (weiblich)" },
+  { name: "tr-TR-AhmetNeural", label: "Türkisch – Ahmet (männlich)" },
+  { name: "fr-FR-DeniseNeural", label: "Französisch – Denise (weiblich)" },
+  { name: "es-ES-AlvaroNeural", label: "Spanisch – Álvaro (männlich)" },
+  { name: "it-IT-ElsaNeural", label: "Italienisch – Elsa (weiblich)" },
+  { name: "pl-PL-ZofiaNeural", label: "Polnisch – Zofia (weiblich)" },
+  { name: "ru-RU-SvetlanaNeural", label: "Russisch – Svetlana (weiblich)" },
+  { name: "nl-NL-FennaNeural", label: "Niederländisch – Fenna (weiblich)" },
+  { name: "pt-BR-FranciscaNeural", label: "Portugiesisch (BR) – Francisca" },
+  { name: "ar-SA-ZariyahNeural", label: "Arabisch – Zariyah (weiblich)" },
+  { name: "ja-JP-NanamiNeural", label: "Japanisch – Nanami (weiblich)" },
 ] as const;
 
-/** Alte Sprachcodes â†’ passende Edge-Stimme (AbwÃ¤rtskompatibilitÃ¤t). */
+/** Alte Sprachcodes → passende Edge-Stimme (Abwärtskompatibilität). */
 const LEGACY_LANG_TO_VOICE: Record<string, string> = {
   de: "de-DE-KatjaNeural",
   en: "en-US-AvaNeural",
@@ -141,9 +140,61 @@ const LEGACY_LANG_TO_VOICE: Record<string, string> = {
   tr: "tr-TR-EmelNeural",
 };
 
-/** Konfigurationen werden im Speicher gehalten: Voice-Events dÃ¼rfen keine
- *  Festplatten-LesevorgÃ¤nge vor dem Antworten auslÃ¶sen. */
+/** Konfigurationen werden im Speicher gehalten: Voice-Events dürfen keine
+ *  Festplatten-Lesevorgänge vor dem Antworten auslösen. */
 const configCache = new Map<string, VerifyConfig>();
+
+/**
+ * Erkennungszeichen für doppelt kodierten Text: Umlaute und Bindestriche
+ * stehen dann als zwei bis drei Zeichen hintereinander (z. B. der Umlaut-o
+ * als Buchstabe gefolgt von einem Paragraphenzeichen).
+ */
+const MOJIBAKE_MARKER = /[\u00C2\u00C3\u00E2\u00E3\u00F0\u00FE]/;
+
+/**
+ * Repariert Text, der als UTF-8 gelesen und als Windows-1252 wieder
+ * geschrieben wurde – Umlaute und Bindestriche stehen dann als mehrere
+ * Zeichen da. Solche Texte können in bereits gespeicherten Ansagen stecken
+ * und würden sonst auch noch vorgelesen.
+ *
+ * Der Text wird zurück nach CP1252 zerlegt und als UTF-8 gelesen. Nur wenn
+ * das Ergebnis gültiges UTF-8 ist, wird es verwendet – sonst bleibt der
+ * Originaltext stehen.
+ */
+export function repairMojibake(text: string): string {
+  if (!MOJIBAKE_MARKER.test(text)) return text;
+
+  // CP1255-Byte → Zeichen, umgekehrte Richtung für die Reparatur.
+  const decoder = new TextDecoder("windows-1252");
+  const toByte = new Map<string, number>();
+  for (let b = 0; b < 256; b++) {
+    const ch = decoder.decode(new Uint8Array([b]));
+    if (ch.length === 1 && !toByte.has(ch)) toByte.set(ch, b);
+  }
+
+  const bytes: number[] = [];
+  for (const ch of text) {
+    const b = toByte.get(ch);
+    // Unbekanntes Zeichen → keine sichere Reparatur.
+    if (b === undefined) return text;
+    bytes.push(b);
+  }
+
+  try {
+    const repaired = new TextDecoder("utf-8", { fatal: true }).decode(
+      new Uint8Array(bytes),
+    );
+    return repaired;
+  } catch {
+    return text;
+  }
+}
+
+/** Nimmt einen gespeicherten Text, repariert ihn und fällt sonst auf den Standard zurück. */
+function storedText(value: unknown, fallback: string): string {
+  if (typeof value !== "string" || !value) return fallback;
+  return repairMojibake(value);
+}
 
 function normalizeConfig(stored: Partial<VerifyConfig> | undefined): VerifyConfig {
   // Alt-Konfigurationen hatten "lang" (Sprachcode) bzw. "voice" (StreamElements).
@@ -158,23 +209,20 @@ function normalizeConfig(stored: Partial<VerifyConfig> | undefined): VerifyConfi
     enabled: stored?.enabled ?? DEFAULT_CONFIG.enabled,
     channelId: stored?.channelId || VERIFY_CHANNEL_ID,
     waitingChannelId: stored?.waitingChannelId || WAITING_CHANNEL_ID,
-    
-    message:
-      typeof stored?.message === "string" && stored.message
-        ? stored.message
-        : DEFAULT_CONFIG.message,
-    micFailedMessage:
-      typeof stored?.micFailedMessage === "string" && stored.micFailedMessage
-        ? stored.micFailedMessage
-        : DEFAULT_CONFIG.micFailedMessage,
-    speakNowMessage:
-      typeof stored?.speakNowMessage === "string" && stored.speakNowMessage
-        ? stored.speakNowMessage
-        : DEFAULT_CONFIG.speakNowMessage,
-    micPassedMessage:
-      typeof stored?.micPassedMessage === "string" && stored.micPassedMessage
-        ? stored.micPassedMessage
-        : DEFAULT_CONFIG.micPassedMessage,
+
+    message: storedText(stored?.message, DEFAULT_CONFIG.message),
+    micFailedMessage: storedText(
+      stored?.micFailedMessage,
+      DEFAULT_CONFIG.micFailedMessage,
+    ),
+    speakNowMessage: storedText(
+      stored?.speakNowMessage,
+      DEFAULT_CONFIG.speakNowMessage,
+    ),
+    micPassedMessage: storedText(
+      stored?.micPassedMessage,
+      DEFAULT_CONFIG.micPassedMessage,
+    ),
     voice: storedVoice || DEFAULT_CONFIG.voice,
     roles: Array.isArray(stored?.roles) ? stored.roles : [],
   };
@@ -189,8 +237,8 @@ export async function getVerifyConfig(guildId: string): Promise<VerifyConfig> {
 }
 
 /**
- * Synchrone Variante â€” nÃ¶tig, wenn vor dem Ã–ffnen eines Modals nichts
- * awaited werden darf. FÃ¤llt auf die Standardwerte zurÃ¼ck, wenn die
+ * Synchrone Variante — nötig, wenn vor dem Öffnen eines Modals nichts
+ * awaited werden darf. Fällt auf die Standardwerte zurück, wenn die
  * Konfiguration noch nicht gelesen wurde.
  */
 export function getCachedVerifyConfig(guildId: string): VerifyConfig {
@@ -199,18 +247,27 @@ export function getCachedVerifyConfig(guildId: string): VerifyConfig {
   return { ...cached, roles: [...cached.roles] };
 }
 
-/** Schreibt die Konfiguration und hÃ¤lt den Cache aktuell. */
+/** Schreibt die Konfiguration und hält den Cache aktuell. */
 export async function saveVerifyConfig(
   guildId: string,
   cfg: VerifyConfig,
 ): Promise<void> {
-  configCache.set(guildId, cfg);
-  await verifyStore.write(guildId, cfg);
+  // Beim Speichern gleich mitreparieren, damit kaputte Zeichen aus einer
+  // fehlerhaften Eingabe nicht dauerhaft in der Konfiguration landen.
+  const clean: VerifyConfig = {
+    ...cfg,
+    message: repairMojibake(cfg.message),
+    micFailedMessage: repairMojibake(cfg.micFailedMessage),
+    speakNowMessage: repairMojibake(cfg.speakNowMessage),
+    micPassedMessage: repairMojibake(cfg.micPassedMessage),
+  };
+  configCache.set(guildId, clean);
+  await verifyStore.write(guildId, clean);
 }
 
 /**
- * Erzeugt TTS-Audio (MP3) Ã¼ber den kostenlosen Microsoft Edge-Sprachdienst
- * (kein API-Key nÃ¶tig, lÃ¤uft server-seitig). Ergebnisse werden zwischen-
+ * Erzeugt TTS-Audio (MP3) über den kostenlosen Microsoft Edge-Sprachdienst
+ * (kein API-Key nötig, läuft server-seitig). Ergebnisse werden zwischen-
  * gespeichert, damit dieselbe Ansage nicht erneut synthetisiert wird.
  */
 const TTS_CACHE_LIMIT = 40;
@@ -256,22 +313,22 @@ async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
  * Wartet bis zur Ready-State, sonst wird das Audio von Discord verworfen.
  */
 /**
- * Wird geworfen, wenn ein PrÃ¼f-Durchlauf abbricht, weil das Mitglied den
+ * Wird geworfen, wenn ein Prüf-Durchlauf abbricht, weil das Mitglied den
  * Kanal vorher verlassen hat. Kein Fehlerfall, sondern normales Ende.
  */
 export class VerifyAbortedError extends Error {
-  constructor(reason = "PrÃ¼fung abgebrochen") {
+  constructor(reason = "Prüfung abgebrochen") {
     super(reason);
     this.name = "VerifyAbortedError";
   }
 }
 
-/** PrÃ¼ft, ob ein Durchlauf noch laufen darf, und wirft sonst. */
+/** Prüft, ob ein Durchlauf noch laufen darf, und wirft sonst. */
 export function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new VerifyAbortedError();
 }
 
-/** `setTimeout`, das bei Abbruch sofort wieder zurÃ¼ckkehrt. */
+/** `setTimeout`, das bei Abbruch sofort wieder zurückkehrt. */
 export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -290,7 +347,7 @@ export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> 
   });
 }
 
-/** Registriert einen Abbruch-Handler und liefert die AufrÃ¤umfunktion. */
+/** Registriert einen Abbruch-Handler und liefert die Aufräumfunktion. */
 export function onAbort(signal: AbortSignal | undefined, fn: () => void): () => void {
   if (!signal) return () => undefined;
   if (signal.aborted) {
@@ -316,8 +373,8 @@ export async function connectToVerifyChannel(
           guildId: guild.id,
           channelId,
           adapterCreator: guild.voiceAdapterCreator,
-          // Mikrofon stumm, damit keine GerÃ¤usche Ã¼bertragen werden; Audio wird
-          // explizit Ã¼ber den Audio-Player abgespielt.
+          // Mikrofon stumm, damit keine Geräusche übertragen werden; Audio wird
+          // explizit über den Audio-Player abgespielt.
           selfMute: true,
           selfDeaf: false,
         });
@@ -332,7 +389,7 @@ export async function connectToVerifyChannel(
 
 /**
  * Liest die aktuellen Kanalrechte eines Mitglieds im Prüf-Kanal und
- * protokolliert sie. Der Bot aendert an den Rechten nichts mehr - die
+ * protokolliert sie. Der Bot ändert an den Rechten nichts mehr – die
  * Kanal-Einstellungen werden komplett von Hand in Discord gemacht.
  *
  * Nur zur Diagnose: wenn ein Mitglied im Prüf-Kanal nicht sprechen kann,
@@ -347,8 +404,8 @@ export function logVerifyPermissions(
   if (!member) return;
   const perms = member.permissionsIn(channelId);
 
-  // Rollen, die im Kanal "Senden: aus" haben und damit das Mitglied
-  // stumm halten. Ein Rollen-Override gewinnt gegen den Rest.
+  // Rollen, die im Kanal "Senden: aus" haben und damit das Mitglied stumm
+  // halten. Ein Rollen-Override gewinnt gegen den Rest.
   const channel = guild.channels.cache.get(channelId);
   const blockingRoles = member.roles.cache
     .filter(
@@ -360,7 +417,7 @@ export function logVerifyPermissions(
     )
     .map((role) => role.id);
 
-  logger.info("Kanalrechte (nur gelesen, nicht geaendert).", {
+  logger.info("Kanalrechte (nur gelesen, nicht geändert).", {
     guildId: guild.id,
     channelId,
     userId: memberId,
@@ -372,8 +429,8 @@ export function logVerifyPermissions(
 }
 
 /**
- * Spielt einen Audio-Puffer Ã¼ber die bestehende Verbindung ab und wartet bis
- * zum Ende. Der Notausstieg richtet sich nach der LÃ¤nge des Audios, damit
+ * Spielt einen Audio-Puffer über der bestehenden Verbindung ab und wartet bis
+ * zum Ende. Der Notausstieg richtet sich nach der Länge des Audios, damit
  * lange Ansagen nicht abgeschnitten werden.
  */
 export function playBuffer(
@@ -413,8 +470,8 @@ export function playBuffer(
       resolve();
     };
 
-    // Das MP3 kommt mit ca. 48 kbit/s (~6 kB/s). Bewusst konservativ schÃ¤tzen
-    // (5 kB/s) und groÃŸzÃ¼gig Puffer drauflegen.
+    // Das MP3 kommt mit ca. 48 kbit/s (~6 kB/s). Bewusst konservativ schätzen
+    // (5 kB/s) und großzügig Puffer drauflegen.
     const estimatedMs = Math.ceil((buffer.length / 5000) * 1000);
     timer = setTimeout(
       () => finish(true),
@@ -423,7 +480,7 @@ export function playBuffer(
 
     player.once(AudioPlayerStatus.Idle, () => finish(false));
     player.once("error", (err: Error) => {
-      logger.error("Audio-Player-Fehler wÃ¤hrend der Verifizierung.", {
+      logger.error("Audio-Player-Fehler während der Verifizierung.", {
         error: err,
       });
       finish(false);
@@ -437,11 +494,11 @@ export function playBuffer(
 }
 
 /**
- * FÃ¼hrt Aufgaben pro Guild streng nacheinander aus.
+ * Führt Aufgaben pro Guild streng nacheinander aus.
  *
- * Ohne das wÃ¼rden mehrere gleichzeitige Joins mehrere Audio-Player auf
+ * Ohne das würden mehrere gleichzeitige Joins mehrere Audio-Player auf
  * dieselbe Voice-Verbindung legen: der zweite `subscribe()` ersetzt den
- * ersten, dessen Wiedergabe nie beendet wird und in den Timeout lÃ¤uft.
+ * ersten, dessen Wiedergabe nie beendet wird und in den Timeout läuft.
  */
 const guildQueues = new Map<string, Promise<void>>();
 
@@ -458,7 +515,7 @@ export function runExclusive(
 
   guildQueues.set(guildId, next);
   void next.finally(() => {
-    // Nur aufrÃ¤umen, wenn niemand weiteres ansteht.
+    // Nur aufräumen, wenn niemand weiteres ansteht.
     if (guildQueues.get(guildId) === next) guildQueues.delete(guildId);
   });
   return next;
@@ -472,17 +529,17 @@ export function runExclusive(
 const MIC_MIN_SPEECH_MS = 800;
 /** Ab diesem RMS-Pegel gilt ein Frame als "da ist Sprache" (Stille-Rauschen liegt darunter). */
 const MIC_SPEECH_FLOOR = 0.006;
-/** Mindest-Durchschnittspegel (RMS, 0..1) â€” darunter gilt das Mikrofon als zu leise. */
+/** Mindest-Durchschnittspegel (RMS, 0..1) — darunter gilt das Mikrofon als zu leise. */
 const MIC_MIN_LEVEL = 0.03;
-/** Ab diesem Spitzenwert gilt das Signal als Ã¼bersteuert. */
+/** Ab diesem Spitzenwert gilt das Signal als übersteuert. */
 const MIC_CLIP_PEAK = 0.97;
-/** Sprache muss mindestens so viel lauter sein wie der Rauschboden (Faktor â‰ˆ +12 dB). */
+/** Sprache muss mindestens so viel lauter sein wie der Rauschboden (Faktor ≈ +12 dB). */
 const MIC_MIN_SNR = 4;
-/** Wie viele Stille-Frames wir mindestens brauchen, um den Rauschboden zu schÃ¤tzen. */
+/** Wie viele Stille-Frames wir mindestens brauchen, um den Rauschboden zu schätzen. */
 const MIC_MIN_NOISE_FRAMES = 5;
-/** Wie lange auf Sprache gewartet wird, bevor der Check als "nichts gehÃ¶rt" endet. */
+/** Wie lange auf Sprache gewartet wird, bevor der Check als "nichts gehört" endet. */
 const MIC_MAX_WAIT_MS = 45_000;
-/** Opus-Abtastrate und FramegrÃ¶ÃŸe fÃ¼r Discord-Voice (20 ms). */
+/** Opus-Abtastrate und Framegröße für Discord-Voice (20 ms). */
 const OPUS_RATE = 48_000;
 const OPUS_FRAME_MS = 20;
 
@@ -499,15 +556,15 @@ export type MicCheckReason =
 export interface MicCheckResult {
   /** true = Mikrofon brauchbar, Verifizierung darf weiterlaufen. */
   ok: boolean;
-  /** Grund fÃ¼r ein Scheitern, nur gesetzt wenn ok === false. */
+  /** Grund für ein Scheitern, nur gesetzt wenn ok === false. */
   reason?: MicCheckReason;
   /** Gemessene Sprechzeit in Millisekunden. */
   speechMs: number;
   /** Gemessener mittlerer Sprechpegel (0..1). */
   level: number;
-  /** HÃ¶chster Spitzenwert im Signal (0..1), 1 = voll aufgedreht. */
+  /** Höchster Spitzenwert im Signal (0..1), 1 = voll aufgedreht. */
   peak: number;
-  /** VerhÃ¤ltnis Sprechpegel zu Rauschboden. */
+  /** Verhältnis Sprechpegel zu Rauschboden. */
   snr: number;
 }
 
@@ -517,30 +574,30 @@ export interface MicMeasurement {
   speechMs: number;
   /** Mittlerer Pegel der Sprachframes (0..1). */
   level: number;
-  /** HÃ¶chster Spitzenwert der Sprachframes (0..1). */
+  /** Höchster Spitzenwert der Sprachframes (0..1). */
   peak: number;
-  /** VerhÃ¤ltnis Sprechpegel zu Rauschboden, 0 wenn nicht schÃ¤tzbar. */
+  /** Verhältnis Sprechpegel zu Rauschboden, 0 wenn nicht schätzbar. */
   snr: number;
-  /** true, wenn der Rauschboden aus genug Stille-Frames geschÃ¤tzt wurde. */
+  /** true, wenn der Rauschboden aus genug Stille-Frames geschätzt wurde. */
   noiseKnown: boolean;
   /** false, wenn ohne Opus-Decoder nur die Sprechdauer gemessen wurde. */
   hasLevels: boolean;
 }
 
 /**
- * Bewertet eine Messung. Reihenfolge ist bewusst: erst muss Ã¼berhaupt etwas
- * Brauchbares angekommen sein, danach erst QualitÃ¤tskriterien â€“ sonst wÃ¼rde ein
- * stummes Mikrofon als "Ã¼bersteuert" gemeldet.
+ * Bewertet eine Messung. Reihenfolge ist bewusst: erst muss überhaupt etwas
+ * Brauchbares angekommen sein, danach erst Qualitätskriterien – sonst würde ein
+ * stummes Mikrofon als "übersteuert" gemeldet.
  *
- * Reihenfolge: kein Ton â†’ zu kurz â†’ keine Pegeldaten â†’ Ã¼bersteuert â†’
- * zu leise â†’ zu verrauscht â†’ bestanden.
+ * Reihenfolge: kein Ton → zu kurz → keine Pegeldaten → übersteuert →
+ * zu leise → zu verrauscht → bestanden.
  */
 export function judgeMicMeasurement(
   m: MicMeasurement,
 ): MicCheckReason | "ok" {
   if (m.speechMs === 0) return "no_speech";
   if (m.speechMs < MIC_MIN_SPEECH_MS) return "too_short";
-  // Ohne Decoder gibt es keine Pegelmessung â€“ dann zÃ¤hlt nur die Sprechdauer.
+  // Ohne Decoder gibt es keine Pegelmessung – dann zählt nur die Sprechdauer.
   if (!m.hasLevels) return "ok";
   if (m.peak >= MIC_CLIP_PEAK) return "clipping";
   if (m.level < MIC_MIN_LEVEL) return "too_quiet";
@@ -548,11 +605,11 @@ export function judgeMicMeasurement(
   return "ok";
 }
 
-/** Pegel eines Opus-Pakets: RMS (LautstÃ¤rke) und Spitzenwert (Clipping). */
+/** Pegel eines Opus-Pakets: RMS (Lautstärke) und Spitzenwert (Clipping). */
 interface FrameLevel {
   /** Mittlerer Betrag des Signals, 0..1. */
   rms: number;
-  /** GrÃ¶ÃŸter Einzelwert, 0..1. Nahe 1 heiÃŸt Ã¼bersteuert. */
+  /** Größter Einzelwert, 0..1. Nahe 1 heißt übersteuert. */
   peak: number;
 }
 
@@ -592,7 +649,7 @@ function measureFrame(
 /**
  * Wartet, bis niemand im Kanal spricht, damit der Bot nicht mitten in einen
  * Satz redet. `graceMs` ist eine kleine Schonzeit nach dem letzten Sprecher,
- * damit Ansagen sich nicht Ã¼berlappen.
+ * damit Ansagen sich nicht überlappen.
  */
 export function waitForSilence(
   connection: VoiceConnection,
@@ -639,21 +696,21 @@ export function waitForSilence(
     speaking.on("end", onEnd);
     detachAbort = onAbort(signal, finish);
 
-    // Wer schon spricht, zÃ¤hlt ebenfalls als belegt.
+    // Wer schon spricht, zählt ebenfalls als belegt.
     if (speaking.users.size > 0) active = speaking.users.size;
     startGrace();
   });
 }
 
 /**
- * Nimmt die Stimme eines Mitglieds Ã¼ber den Voice-Receiver auf und bewertet,
- * ob das Mikrofon brauchbar ist. GeprÃ¼ft wird in dieser Reihenfolge:
+ * Nimmt die Stimme eines Mitglieds über den Voice-Receiver auf und bewertet,
+ * ob das Mikrofon brauchbar ist. Geprüft wird in dieser Reihenfolge:
  *
- * 1. `no_speech`  â€“ in `MIC_MAX_WAIT_MS` kam kein verwertbarer Ton
- * 2. `too_short`  â€“ zu wenig Sprechzeit zum Beurteilen
- * 3. `clipping`   â€“ Signal Ã¼bersteuert (Gain zu hoch)
- * 4. `too_quiet`  â€“ Sprechpegel unter `MIC_MIN_LEVEL`
- * 5. `noisy`      â€“ Sprache hebt sich kaum vom Rauschboden ab
+ * 1. `no_speech`  – in `MIC_MAX_WAIT_MS` kam kein verwertbarer Ton
+ * 2. `too_short`  – zu wenig Sprechzeit zum Beurteilen
+ * 3. `clipping`   – Signal übersteuert (Gain zu hoch)
+ * 4. `too_quiet`  – Sprechpegel unter `MIC_MIN_LEVEL`
+ * 5. `noisy`      – Sprache hebt sich kaum vom Rauschboden ab
  *
  * Der Check endet nach einer kurzen Stille nach der Sprachphase. Wer gar
  * nichts aufnimmt, wartet bis `MIC_MAX_WAIT_MS`.
@@ -668,30 +725,30 @@ export function runMicCheck(
     try {
       decoder = new OpusScript(OPUS_RATE, 1, OpusScript.Application.VOIP);
     } catch (err) {
-      logger.warn("Opus-Decoder nicht verfÃ¼gbar â€“ nur Sprech-Erkennung.", {
+      logger.warn("Opus-Decoder nicht verfügbar – nur Sprech-Erkennung.", {
         error: err,
       });
       decoder = undefined;
     }
 
 let settled = false;
-    /** Frames, die als Sprache gewertet wurden â€“ Pegelsumme und Spitzenwert. */
+    /** Frames, die als Sprache gewertet wurden – Pegelsumme und Spitzenwert. */
     let voiceFrames = 0;
     let levelSum = 0;
-    /** HÃ¶chster Spitzenwert Ã¼ber alle Sprachframes â€“ fÃ¼r die Clipping-PrÃ¼fung. */
+    /** Höchster Spitzenwert über alle Sprachframes – für die Clipping-Prüfung. */
     let peakMax = 0;
-    /** Frames, die als Rauschen gewertet wurden â€“ Grundlage des Rauschbodens. */
+    /** Frames, die als Rauschen gewertet wurden – Grundlage des Rauschbodens. */
     let noiseFrames = 0;
     let noiseSum = 0;
-    /** Alle Frame-Pegel, fÃ¼r die Neuberechnung, falls die Speaking-Events fehlen. */
+    /** Alle Frame-Pegel, für die Neuberechnung, falls die Speaking-Events fehlen. */
     const frameLevels: number[] = [];
     const framePeaks: number[] = [];
-    /** Discord meldet zuverlÃ¤ssig, wann das Mitglied wirklich sendet. */
+    /** Discord meldet zuverlässig, wann das Mitglied wirklich sendet. */
     let isSpeaking = false;
     let sawSpeakingEvent = false;
     let silentTimer: NodeJS.Timeout | undefined;
     let hardTimeout: NodeJS.Timeout | undefined;
-    /** ZusÃ¤tzliche Abmeldungen, die beim Beenden des Checks ausgefÃ¼hrt werden. */
+    /** Zusätzliche Abmeldungen, die beim Beenden des Checks ausgeführt werden. */
     const detachers: Array<() => void> = [];
 
     const speechMs = (): number => voiceFrames * OPUS_FRAME_MS;
@@ -701,15 +758,15 @@ let settled = false;
     const snr = (): number => {
       if (noiseFrames < MIC_MIN_NOISE_FRAMES || voiceFrames === 0) return 0;
       const noise = noiseSum / noiseFrames;
-      // Rauschboden nahe 0 â†’ VerhÃ¤ltnis ist unendlich groÃŸ, das ist in Ordnung.
+      // Rauschboden nahe 0 → Verhältnis ist unendlich groß, das ist in Ordnung.
       if (noise <= 0) return Number.POSITIVE_INFINITY;
       return level() / noise;
     };
 
     /**
-     * Ohne Speaking-Events lÃ¤sst sich Sprache nicht von dauerhaftem
+     * Ohne Speaking-Events lässt sich Sprache nicht von dauerhaftem
      * Hintergrundrauschen trennen. In dem Fall wird ersatzweise am Pegel
-     * unterschieden â€“ ungenauer, aber besser als ein Fehlschlag fÃ¼r alle.
+     * unterschieden – ungenauer, aber besser als ein Fehlschlag für alle.
      */
     const reclassifyByLevel = (): void => {
       voiceFrames = 0;
@@ -740,7 +797,7 @@ let settled = false;
         try {
           detach();
         } catch {
-          // AufrÃ¤umen ist bestmÃ¶glich.
+          // Aufräumen ist bestmöglich.
         }
       }
       try {
@@ -758,7 +815,7 @@ let settled = false;
 
     // Auswertung: erst Bewertung, dann finish(), weil finish() die Werte liest.
     const evaluate = (): void => {
-      // Speaking-Events vorhanden? Wenn nicht, auf reine Pegelbewertung zurÃ¼ckfallen.
+      // Speaking-Events vorhanden? Wenn nicht, auf reine Pegelbewertung zurückfallen.
       if (!sawSpeakingEvent && frameLevels.length >= MIC_MIN_NOISE_FRAMES * 2) {
         reclassifyByLevel();
       }
@@ -799,7 +856,7 @@ let settled = false;
 
     hardTimeout = setTimeout(evaluate, MIC_MAX_WAIT_MS);
 
-    // Bricht das Mitglied vorher ab, endet der Check sofort â€“ sonst wÃ¼rde die
+    // Bricht das Mitglied vorher ab, endet der Check sofort – sonst würde die
     // ganze Schlange bis zu MIC_MAX_WAIT_MS blockiert bleiben.
     detachers.push(
       onAbort(signal, () => {
@@ -807,14 +864,14 @@ let settled = false;
       }),
     );
 
-    // Speaking-Events sind die verlÃ¤sslichste Trennung zwischen Sprache und
-    // Rauschen â€“ der Pegel allein reicht bei laufendem Hintergrund nicht.
+    // Speaking-Events sind die verlässlichste Trennung zwischen Sprache und
+    // Rauschen – der Pegel allein reicht bei laufendem Hintergrund nicht.
     const speaking = connection.receiver.speaking;
     const onSpeakStart = (userId: string): void => {
       if (userId !== memberId) return;
       isSpeaking = true;
       sawSpeakingEvent = true;
-      // Erstes HÃ¶ren beendet das Warten auf eine Maximaldauer.
+      // Erstes Hören beendet das Warten auf eine Maximaldauer.
       if (hardTimeout) clearTimeout(hardTimeout);
     };
     const onSpeakEnd = (userId: string): void => {
@@ -844,7 +901,7 @@ let settled = false;
         noiseSum += rms;
       }
 
-      // Solange gesendet wird, lÃ¤uft die Zeit weiter.
+      // Solange gesendet wird, läuft die Zeit weiter.
       if (isSpeaking) restartSilenceTimer();
     });
 
@@ -869,14 +926,14 @@ let settled = false;
 
 interface QueueEntry {
   userId: string;
-  /** Nickname vor dem Setzen des "(n) "-PrÃ¤fix. */
+  /** Nickname vor dem Setzen des "(n) "-Präfix. */
   originalNick: string | null;
   originalName: string;
 }
 
-/** guildId â†’ Reihenfolge der Wartenden (Join-Reihenfolge). */
+/** guildId → Reihenfolge der Wartenden (Join-Reihenfolge). */
 const waitingOrder = new Map<string, string[]>();
-/** "guildId:userId" â†’ Wartende mit Namen. */
+/** "guildId:userId" → Wartende mit Namen. */
 const waitingEntries = new Map<string, QueueEntry>();
 
 function entryKey(guildId: string, userId: string): string {
@@ -884,7 +941,7 @@ function entryKey(guildId: string, userId: string): string {
 }
 
 /**
- * Registriert ein Mitglied in der Warteschlange. Der RÃ¼ckgabewert ist die
+ * Registriert ein Mitglied in der Warteschlange. Der Rückgabewert ist die
  * Position (1-basiert), die auch im Nickname als "(n) " auftaucht.
  */
 export function enqueueWaiting(
@@ -904,9 +961,9 @@ export function enqueueWaiting(
 }
 
 /**
- * Entfernt ein Mitglied aus der Warteschlange. Gibt zurÃ¼ck, ob es drin war.
- * Die Nummern der Ã¼brigen Wartenden verschieben sich dadurch â€“ wer danach
- * `renumberWaiting` aufruft, bekommt wieder lÃ¼ckenlose Zahlen.
+ * Entfernt ein Mitglied aus der Warteschlange. Gibt zurück, ob es drin war.
+ * Die Nummern der übrigen Wartenden verschieben sich dadurch – wer danach
+ * `renumberWaiting` aufruft, bekommt wieder lückenlose Zahlen.
  */
 export function dequeueWaiting(guildId: string, userId: string): boolean {
   const key = entryKey(guildId, userId);
@@ -920,7 +977,7 @@ export function dequeueWaiting(guildId: string, userId: string): boolean {
   return true;
 }
 
-/** NÃ¤chster Wartender eines Servers, ohne ihn aus der Liste zu nehmen. */
+/** Nächster Wartender eines Servers, ohne ihn aus der Liste zu nehmen. */
 export function peekNextWaiting(guildId: string): QueueEntry | undefined {
   const list = waitingOrder.get(guildId);
   if (!list || list.length === 0) return undefined;
@@ -930,9 +987,9 @@ export function peekNextWaiting(guildId: string): QueueEntry | undefined {
 }
 
 /**
- * Erster Wartender, fÃ¼r den `isEligible` true ist â€“ ohne ihn zu entfernen.
- * Damit lÃ¤sst sich ein Mitglied in Abklingzeit Ã¼berspringen, ohne die
- * FIFO-Reihenfolge der Ã¼brigen zu Ã¤ndern.
+ * Erster Wartender, für den `isEligible` true ist – ohne ihn zu entfernen.
+ * Damit lässt sich ein Mitglied in Abklingzeit überspringen, ohne die
+ * FIFO-Reihenfolge der übrigen zu ändern.
  */
 export function peekFirstEligible(
   guildId: string,
@@ -948,13 +1005,13 @@ export function peekFirstEligible(
 }
 
 /**
- * "guildId:userId" â†’ Zeitstempel, ab dem wieder geprÃ¼ft werden darf.
- * Nach einem endgÃ¼ltig fehlgeschlagenen Check wartet das Mitglied, statt die
+ * "guildId:userId" → Zeitstempel, ab dem wieder geprüft werden darf.
+ * Nach einem endgültig fehlgeschlagenen Check wartet das Mitglied, statt die
  * ganze Schlange mit einem kaputten Mikrofon aufzuhalten.
  */
 const cooldowns = new Map<string, number>();
 
-/** Setzt eine Wartezeit fÃ¼r ein Mitglied. */
+/** Setzt eine Wartezeit für ein Mitglied. */
 export function setCooldown(guildId: string, userId: string, ms: number): void {
   cooldowns.set(entryKey(guildId, userId), Date.now() + ms);
 }
@@ -971,13 +1028,13 @@ export function cooldownRemaining(guildId: string, userId: string): number {
   return left;
 }
 
-/** Hebt eine Wartezeit auf, z. B. nach erfolgreicher PrÃ¼fung. */
+/** Hebt eine Wartezeit auf, z. B. nach erfolgreicher Prüfung. */
 export function clearCooldown(guildId: string, userId: string): void {
   cooldowns.delete(entryKey(guildId, userId));
 }
 
 /**
- * Setzt die Nicknames aller Wartenden auf ihre aktuelle Position. NÃ¶tig,
+ * Setzt die Nicknames aller Wartenden auf ihre aktuelle Position. Nötig,
  * weil die Nummern nach jedem departures nach vorn rutschen.
  */
 export async function renumberWaiting(guild: Guild): Promise<void> {
@@ -1012,8 +1069,8 @@ export async function applyQueueNickname(
 }
 
 /**
- * Nimmt das "(n) "-PrÃ¤fix wieder vom Nickname. Wird benutzt, sobald das
- * Mitglied den PrÃ¼f-Kanal betritt und in der Ansage mit echtem Namen
+ * Nimmt das "(n) "-Präfix wieder vom Nickname. Wird benutzt, sobald das
+ * Mitglied den Prüf-Kanal betritt und in der Ansage mit echtem Namen
  * angesprochen wird.
  */
 export async function stripQueueNickname(
@@ -1029,7 +1086,7 @@ export async function stripQueueNickname(
   await member.setNickname(target).catch(() => undefined);
 }
 
-/** Name ohne "(n) "-PrÃ¤fix, damit die Zahl nie vorgelesen wird. */
+/** Name ohne "(n) "-Präfix, damit die Zahl nie vorgelesen wird. */
 export function spokenName(displayName: string): string {
   return displayName.replace(/^\(\d+\)\s*/, "").trim();
 }
