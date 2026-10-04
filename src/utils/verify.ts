@@ -329,20 +329,22 @@ export async function connectToVerifyChannel(
 /**
  * Setzt die Kanalrechte eines Mitglieds im Prüf-Kanal. Es gibt bewusst keine
  * Prüf-Rolle: die Rechte hängen direkt am Mitglied und brauchen daher weder eine
- * Rolle noch eine Rollen-Hierarchie. Die Rechte machen den
- * Kanal von außen unsichtbar, lassen ihn aber zu:
+ * Rolle noch eine Rollen-Hierarchie.
  *
- * - `ViewChannel: false`  Kanal taucht nicht in der Kanalliste auf
- * - `Connect: true`       hineinbewegen und verbunden sein ist möglich;
- *                         Discord zeigt den Kanal dann nur, solange man
- *                         verbunden ist
- * - `Speak: true/null`    Sprechrecht nur während der Prüfung
- * - `Mute/Deafen`         bleiben gesetzt, damit niemand im Prüf-Kanal andere
- *                         stummschalten oder tauben kann
- * - `Move/Stream/Ping`    verweigert
+ * - `ViewChannel: true`   **muss** so sein. Discord trennt Mitglieder sofort
+ *                         aus einem Voice-Kanal, dem sie View Channel
+ *                         entziehen. Mit `false` wird das Mitglied beim Betreten
+ *                         wieder rausgeworfen und kann nicht sprechen.
+ * - `Connect: true`       hineinbewegen und verbunden bleiben
+ * - `Speak: armed`        Sprechrecht nur während der Prüfung
+ * - `Mute/Deafen/Move`    verweigert, damit niemand im Prüf-Kanal den Bot
+ *                         stummschalten, tauben oder umziehen kann
+ * - `Stream/Ping`         verweigert
  *
- * Voraussetzung für "von außen nicht sichtbar": `@everyone` darf im Kanal
- * **kein** View Channel haben, sonst ist er für alle sichtbar.
+ * Für "von außen nicht sichtbar" ist **nicht** das Mitglied zuständig, sondern
+ * `@everyone`: im Prüf-Kanal muss `View Channel` für `@everyone` auf **aus**
+ * stehen. Dann sieht nur das Mitglied den Kanal, und das auch nur solange es
+ * verbunden ist.
  *
  * `armed = true` schaltet das Sprechrecht frei, `armed = false` nimmt es wieder
  * weg. Nach der Prüfung werden die Rechte komplett vom Mitglied entfernt.
@@ -373,15 +375,18 @@ export async function ensureMemberVerifyPermissions(
     await channel.permissionOverwrites.edit(
       memberId,
       {
-        // Unsichtbar von außen, aber hineinbewegen und verbunden sein geht.
-        ViewChannel: false,
+        // View Channel MUSS erlaubt sein: Discord trennt Mitglieder aus einem
+        // Voice-Kanal automatisch, wenn man ihnen View Channel entzieht. Mit
+        // `false` landet das Mitglied direkt wieder im Warteraum.
+        ViewChannel: true,
         Connect: true,
         Speak: armed,
         SendMessages: false,
         Stream: false,
-        // Niemand soll im Prüf-Kanal andere stummschalten oder tauben können.
-        MuteMembers: true,
-        DeafenMembers: true,
+        // Niemand soll im Prüf-Kanal den Bot stummschalten, tauben oder
+        // umziehen können.
+        MuteMembers: false,
+        DeafenMembers: false,
         MoveMembers: false,
         MentionEveryone: false,
       },
@@ -426,8 +431,8 @@ export async function ensureMemberVerifyPermissions(
 
 /**
  * Liest die Kanalrechte für ein Mitglied zurück und meldet, ob es tatsächlich
- * sprechen darf. Fällt dabei ein `ViewChannel: false` auf, ist das ein häufiger
- * Grund für stumm geschaltete Mitglieder – deshalb mitloggen.
+ * sprechen darf. View/Connect/Speak werden protokolliert, damit sich ein
+ * stummes Mitglied sofort erklären lässt.
  */
 async function assertSpeakAllowed(
   guild: Guild,

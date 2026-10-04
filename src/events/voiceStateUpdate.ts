@@ -268,8 +268,8 @@ async function runVerify(
       if (!armedForAttempt) {
         logger.error(
           "Sprechrecht konnte nicht freigeschaltet werden – Abbruch. Im Log " +
-            "steht, welcher Baustein blockiert (ViewChannel oder ein " +
-            "@everyone-Override, der das Sprechen verweigert).",
+            "steht, welcher Baustein blockiert. Häufigste Ursache: @everyone " +
+            "verweigert im Prüf-Kanal 'Kanäle ansehen' oder 'Senden'.",
           {
             guildId: guild.id,
             userId: member.id,
