@@ -83,7 +83,8 @@ const MIC_PASS_GRACE_MS = 3_000;
  * Ansage direkt vor dem Trennen. Wer weiß, dass er gleich rausgeholt wird,
  * empfindet es nicht als Rauswurf – die Channels sind ab da frei.
  */
-const MIC_PASS_DISCONNECT_MESSAGE = "Super, du bist durch. Viel Spaß gleich dir!";
+const MIC_PASS_DISCONNECT_MESSAGE =
+  "Super, du bist durch, dann hab ich dich ja aus dem Weg. Viel Spaß dir noch im Rest vom Server!";
 
 /**
  * Wie viele Prüfversuche ein Mitglied im Prüf-Kanal bekommt, bevor es in die
@@ -223,18 +224,18 @@ async function grantVerifyRoles(
 function describeMicProblem(reason: MicCheckReason): string {
   switch (reason) {
     case "no_speech":
-      return "Da kam bei mir nichts an.";
+      return "Da kam bei mir überhaupt nichts an. Hörst du mich gerade?";
     case "too_short":
       return "Das war mir ein bisschen zu kurz. Erzähl mir nochmal was.";
     case "clipping":
-      return "Bei dir knackt es gerade. Dreh dein Mikrofon mal etwas runter.";
+      return "Bei dir knackt es ziemlich, dein Mikrofon ist komplett übertrieben. Dreh die Eingabelautstärke mal etwas runter.";
     case "noisy":
-      return "Bei dir ist gerade mega viel los. Am besten gehst du mal in einen ruhigeren Raum.";
+      return "Bei dir ist gerade mega viel los im Hintergrund, da komm ich kaum durch. Am besten gehst du mal in einen ruhigeren Raum.";
     case "too_quiet":
-      return "Ich verstehe dich kaum. Dreh dein Mikrofon mal lauter.";
+      return "Ich verstehe dich kaum, dein Mikrofon ist mir fast zu leise. Dreh es mal etwas lauter.";
     case "error":
     default:
-      return "Bei mir ist gerade was schiefgegangen. Versuch's einfach nochmal.";
+      return "Bei mir ist gerade was schiefgegangen, tut mir leid. Versuch's einfach nochmal.";
   }
 }
 
@@ -353,7 +354,7 @@ async function runVerify(
         await speak(
           guild,
           verifyChannelId,
-          "Kein Stress, machen wir nochmal.",
+          "Kein Stress, machen wir nochmal. Erzähl mir einfach irgendwas.",
           cfg.voice,
           member.id,
           signal,

@@ -89,29 +89,37 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
 /**
  * Standardtexte für die Ansagen.
  *
- * Zwei Regeln stecken dahinter:
+ * Woraus sich der Ton ergibt:
  *
  * 1. Der Bot redet wie jemand im Raum, nicht wie ein Assistent. "Ich hole dich
  *    kurz hier rüber" oder "Ich schalte dich jetzt frei" beschreiben nur die
  *    Technik hinter der Szene. Ein Mensch sagt das nicht, und man hört sofort,
  *    dass es synthetisch ist. Gesagt wird, was man von gegenüber sagt.
- * 2. Kurze Sätze, ein Gedanke pro Satz. Lange, verschachtelte Sätze liest die
- *    Sprachausgabe betont flach und langsam vor - man hört den Satzbauplan
- *    statt eines Gesprächs.
+ * 2. Ein Gedanke pro Satz, aber keine Stichworte. Sehr kurze Ansagen wirken
+ *    abgehackt, wenn sie hintereinander kommen - lieber zwei Sätze, die zusammen
+ *    einen Gedanken tragen, als drei Einzelmeldungen.
+ * 3. Kein Fachwort und keine Zahl, die niemandem was sagt. "Ich verstehe dich
+ *    kaum" ist mehr wert als "es liegen nur 0,8 Sekunden Sprechzeit vor".
  */
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 3;
+const TEXTS_VERSION = 4;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
-  message: "Hey {user}, willkommen! Schön, dass du uns gefunden hast.",
-  speakNowMessage: "Sag mir einfach mal was. Erzähl mir irgendwas, ich höre zu.",
+  message:
+    "Hey {user}, willkommen bei uns! Schön, dass du da bist. " +
+    "Ich lass dich gleich kurz was sagen, damit wir uns hier auch unterhalten können.",
+  speakNowMessage:
+    "Also, rede einfach mal ein bisschen. " +
+    "Erzähl mir irgendwas, wie dein Tag war oder was du hier so machst.",
   micFailedMessage:
-    "Schau mal kurz nach, ob dein Mikrofon in Discord wirklich an ist. " +
-    "Dann einfach nochmal.",
-  micPassedMessage: "Perfekt, {user}, man versteht dich super. Viel Spaß gleich.",
+    "Geh mal kurz in deinen Discord rein und guck, ob dein Mikrofon wirklich an ist. " +
+    "Wenn es da angehakt ist, geht's nochmal.",
+  micPassedMessage:
+    "Perfekt, {user}, man versteht dich richtig gut. " +
+    "Mach dich jetzt in den Channels breit, viel Spaß euch beiden.",
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
   textsVersion: TEXTS_VERSION,
@@ -347,12 +355,7 @@ export async function fetchTtsAudio(text: string, voice: string): Promise<Buffer
 }
 
 /**
- * Zerlegt eine Ansage in Sätze. Jeder Satz wird einzeln synthetisiert und mit
- * einer kurzen Pause dazwischen abgespielt.
- *
- * Eine Ansage am Stück liest die Stimme in einem Zug durch, ohne Luft zu
- * holen – das klingt immer nach Ansage und nie nach einem Gespräch. Mit den
- * Pausen dazwischen hört es sich an, als spräche jemand.
+ * Zerlegt eine Ansage an den Satzzeichen.
  */
 export function splitSentences(text: string): string[] {
   const sentences = text
@@ -363,23 +366,66 @@ export function splitSentences(text: string): string[] {
 }
 
 /**
- * Synthetisiert eine Ansage satzweise. Zwei Vorteile: Der Cache trifft viel
+ * Fasst die Sätze zu Stücken zusammen, die gemeinsam gesprochen werden.
+ *
+ * Jeder Satz einzeln zu synthetisieren klingt nach Stottern: die Stimme beginnt
+ * für zwei bis fünf Sekunden neu, immer im gleichen Abstand, und der ganze
+ * Durchlauf wirkt wie eine Ansage aus einem Lautsprecher statt wie ein
+ * Gespräch. Innerhalb eines Stücks übernimmt der Sprachdienst die Betonung und
+ * die Pausen von selbst – deutlich natürlicher. Geteilt wird nur an Stellen, an
+ * denen wirklich ein neuer Gedanke beginnt.
+ *
+ * Die Grenzen liegen großzügig: bis zu drei Sätze oder rund 200 Zeichen. Das
+ * sind Stücke von etwa zehn Sekunden, in denen jemand tatsächlich Luft holt.
+ */
+const CHUNK_MAX_SENTENCES = 3;
+const CHUNK_MAX_CHARS = 200;
+
+export function chunkAnnouncement(text: string): string[] {
+  const chunks: string[] = [];
+  let sentences: string[] = [];
+  let length = 0;
+
+  const flush = (): void => {
+    if (sentences.length === 0) return;
+    chunks.push(sentences.join(" "));
+    sentences = [];
+    length = 0;
+  };
+
+  for (const sentence of splitSentences(text)) {
+    const tooLong = length > 0 && length + sentence.length + 1 > CHUNK_MAX_CHARS;
+    const tooMany = sentences.length >= CHUNK_MAX_SENTENCES;
+    if (tooLong || tooMany) flush();
+    sentences.push(sentence);
+    length += sentence.length + 1;
+  }
+  flush();
+
+  return chunks.length > 0 ? chunks : [text];
+}
+
+/**
+ * Synthetisiert eine Ansage stückweise. Zwei Vorteile: Der Cache trifft viel
  * häufiger, weil sich ein geänderter Satz nicht auf alle anderen auswirkt, und
- * die Wiedergabe kann zwischen den Sätzen pausieren.
+ * die Wiedergabe kann zwischen den Stücken pausieren.
  */
 export async function fetchTtsChunks(text: string, voice: string): Promise<Buffer[]> {
   const buffers: Buffer[] = [];
-  // Bewusst nacheinander: jeder Satz öffnet eine eigene Verbindung zum
+  // Bewusst nacheinander: jedes Stück öffnet eine eigene Verbindung zum
   // Sprachdienst, mehrere parallel wären dort unhöflich und würden gern
   // gedrosselt.
-  for (const sentence of splitSentences(text)) {
-    buffers.push(await fetchTtsAudio(sentence, voice));
+  for (const chunk of chunkAnnouncement(text)) {
+    buffers.push(await fetchTtsAudio(chunk, voice));
   }
   return buffers;
 }
 
-/** Pause zwischen zwei Sätzen einer Ansage. */
-export const SENTENCE_GAP_MS = 320;
+/**
+ * Pause zwischen zwei Stücken. Kurz genug, dass sie als Atemholen klingt und
+ * nicht als Absatz, lang genug, dass die Stücke nicht aneinanderkleben.
+ */
+export const SENTENCE_GAP_MS = 260;
 
 async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
   const tts = new MsEdgeTTS();
