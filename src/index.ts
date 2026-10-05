@@ -6,6 +6,7 @@ import { loadEvents } from "./events/index.js";
 import { logger } from "./utils/logger.js";
 import { BotClient, setClient } from "./bot/client.js";
 import { StartupError, describeLoginFailure } from "./utils/errors.js";
+import { readAutoUpdateSettings, startAutoUpdate } from "./utils/autoUpdate.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -33,6 +34,10 @@ async function main(): Promise<void> {
   } catch (err: unknown) {
     throw describeLoginFailure(err);
   }
+
+  // Erst nach dem Login: vorher waere ein Update nur Rauschen im Log.
+  const autoUpdate = readAutoUpdateSettings(process.env, process.cwd());
+  if (autoUpdate) startAutoUpdate(autoUpdate);
 }
 
 main().catch((err: unknown) => {

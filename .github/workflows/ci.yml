@@ -1,0 +1,36 @@
+name: CI
+
+# Der Selbst-Update-Mechanismus des Bots zieht sich Commits von main, ohne dass
+# hier etwas gebaut wird. Dieser Workflow ist das Tor davor: er laeuft auf
+# GitHub-gehosteten Runnern, die sind fuer oeffentliche Repositories kostenlos,
+# und bricht bei Type- oder Testfehlern ab. So spielt der Bot nie einen
+# Commit ein, der nicht gruen war.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build

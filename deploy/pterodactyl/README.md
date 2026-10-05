@@ -6,18 +6,47 @@ VisiHost und NexCloud. Alle ohne Kreditkarte, alle Pterodactyl.
 Diese Anleitung ist die Alternative zu `deploy/setup-vm.sh`, das eine echte VM
 mit root und systemd voraussetzt. Im Panel gibt es beides nicht.
 
-## Kein Push-Deploy möglich
+## Kein Push-Deploy über die API – aber der Bot aktualisiert sich selbst
 
 Die Client-API von Monkey Network ist laut ihrer OpenAPI-Spezifikation
 (`https://monkey-network.xyz/openapi.json`) eine Teilmenge des Pterodactyl-Apis
 mit genau drei lesenden Endpoints: Serverliste, Serverdetails, Ressourcen.
-Es gibt kein `power` und kein `files/write`. Damit lässt sich aus GitHub Actions
-nichts hochladen und nichts neustarten – anders als auf der VM, wo der
-self-hosted Runner das lokal erledigt.
+Es gibt kein `power` und kein `files/write`. Damit kann GitHub Actions nichts
+hochladen und nichts neustarten.
 
-Updates laufen deshalb über `release.ps1` plus SFTP-Upload und einen Klick auf
-Start im Panel. Für einen Push auf `main` ist das OK, weil der Bot ohnehin
-nicht deployt, sondern nur liest.
+Stattdessen aktualisiert sich der Bot selbst. Aktivieren im Panel unter
+**Startup → Environment**:
+
+```
+AUTO_UPDATE=true
+AUTO_UPDATE_INTERVAL_MIN=10
+```
+
+Zusätzlich im Panel: die **Node.js-Egg muss `git` enthalten**. Die meisten
+Pterodactyl-NodeJS-Eggs haben es.
+
+So läuft es:
+
+1. Der Bot fragt alle zehn Minuten per `git ls-remote` die Revision von `main`
+   im öffentlichen Repository ab. Kein Token, kein SSH-Key.
+2. Bei Änderung klont er den Stand in ein Staging-Verzeichnis, macht dort
+   `npm ci` und `npm run build`.
+3. **Erst wenn der Build erfolgreich war**, wird `dist/` getauscht. Ein
+   kaputter Push lässt den laufenden Bot unangetastet weiterlaufen.
+4. Der Bot beendet sich mit Exit-Code 1. Pterodactyl startet bei einem
+   Absturz automatisch neu, und der neue Code läuft.
+
+Der erste Start schreibt nur die aktuelle Revision fest und löst kein Update
+aus – sonst würde jeder frische Deploy sofort nachlegen.
+
+Zwei Dinge, die man wissen sollte:
+
+- `.github/workflows/ci.yml` läuft auf GitHub-gehosteten Runnern. Für ein
+  öffentliches Repository ist das kostenlos, und es prüft Typecheck, Tests und
+  Build bei jedem Push. Das ist das Tor, damit der Bot nie einen roten Commit
+  einspielt.
+- `git` und `npm` müssen im Container vorhanden sein, und das Staging-Verzeichnis
+  braucht temporär rund 200 MB Platz. Bei 2 GB Disk kein Problem.
 
 ## Renewal: alle 14 Tage bestätigen
 
@@ -103,7 +132,8 @@ oder die Dateien gelegentlich per SFTP rauskopieren.
 
 ## 4. Aktualisieren
 
-Nach einem Push auf GitHub:
+Mit `AUTO_UPDATE=true` erledigt sich das von selbst, siehe oben. Ohne den
+Schalter bleiben vier Handgriffe pro Update:
 
 1. `release.ps1` laufen lassen (siehe 1.)
 2. Panel auf **Maintenance Mode**
@@ -114,9 +144,6 @@ Nach einem Push auf GitHub:
 
 `start.sh` vergleicht die Prüfsumme von `package-lock.json` und installiert nur
 bei Änderung neu. Danach startet der Bot in wenigen Sekunden.
-
-Das sind vier Handgriffe pro Update. Ein Push-Deploy wäre nur über die API
-möglich, und die ist read-only – siehe oben.
 
 ## Grenzen dieser Hoster
 
