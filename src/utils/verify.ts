@@ -66,6 +66,12 @@ export const VERIFY_CHANNEL_ID = "1547676303149244508";
  * "Senden" steht offen, damit sie dort reden können.
  */
 export const MIC_CHECK_ROLE_ID = "1547675358948753418";
+/**
+ * Rolle, die ein Mitglied nach bestandenem Mikrofon-Check bekommt. Nur diese
+ * Rolle gilt als "bereits verifiziert" – `MIC_CHECK_ROLE_ID` hat laut Server-
+ * Konfiguration jedes Mitglied und taugt deshalb nicht als Nachweis.
+ */
+export const VERIFIED_ROLE_ID = "1547675350887178240";
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,

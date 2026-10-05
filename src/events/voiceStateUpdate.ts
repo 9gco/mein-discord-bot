@@ -31,7 +31,7 @@ import {
   WAITING_CHANNEL_ID,
   type MicCheckResult,
   type VerifyConfig,
-  MIC_CHECK_ROLE_ID,
+  VERIFIED_ROLE_ID,
 } from "../utils/verify.js";
 import type { BotEvent } from "./index.js";
 
@@ -517,13 +517,13 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
 
     // Bereits verifiziert → ignorieren.
     if (cfg.roles.some((roleId) => member.roles.cache.has(roleId))) return;
-    // Hat bereits die Whitelist/Prüfrolle → sofort aus Warteraum werfen
+    // Hat bereits die Verifizieren-Rolle → sofort aus Warteraum werfen
     // und Schlange weiterschieben.
-    if (member.roles.cache.has(MIC_CHECK_ROLE_ID)) {
+    if (member.roles.cache.has(VERIFIED_ROLE_ID)) {
       if (newState.channelId === waitingChannelId) {
         try {
           await member.voice.disconnect(
-            "Bereits verifiziert (Whitelist-Rolle vorhanden)",
+            "Bereits verifiziert (Verifizieren-Rolle vorhanden)",
           );
         } catch {}
       }
