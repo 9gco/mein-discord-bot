@@ -18,7 +18,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -118,15 +118,56 @@ function resolveAppDir() {
 const { dir: APP } = resolveAppDir();
 const ENTRY = join(APP, "dist", "index.js");
 
-if (!existsSync(ENTRY)) {
-  console.log("[start] dist/index.js fehlt, baue jetzt");
+/**
+ * Zeitstempel der juengsten Quelldatei. `git pull` setzt die Aenderungszeit
+ * nur auf den Dateien um, die sich tatsaechlich geaendert haben - deshalb
+ * reicht der Vergleich gegen ein einzelnes File nicht.
+ */
+function newestSourceMtime(dir) {
+  let newest = 0;
+  try {
+    const walk = (path) => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        const full = join(path, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else newest = Math.max(newest, statSync(full).mtimeMs);
+      }
+    };
+    walk(join(dir, "src"));
+  } catch {
+    // Ohne src/ gibt es nichts zu vergleichen.
+  }
+  for (const name of ["package.json", "package-lock.json", "tsconfig.json"]) {
+    try {
+      newest = Math.max(newest, statSync(join(dir, name)).mtimeMs);
+    } catch {
+      /* Datei fehlt - dann nicht relevant. */
+    }
+  }
+  return newest;
+}
+
+let needsBuild = !existsSync(ENTRY);
+let reason = "dist/index.js fehlt";
+
+if (!needsBuild) {
+  const source = newestSourceMtime(APP);
+  const built = statSync(ENTRY).mtimeMs;
+  if (source > built) {
+    needsBuild = true;
+    reason = "Quellen sind neuer als dist/";
+  }
+}
+
+if (needsBuild) {
+  console.log(`[start] ${reason}, baue jetzt`);
   // Das Egg installiert vorher mit `npm install --production`, also ohne
   // Dev-Dependencies. TypeScript gehoert zu den Dev-Dependencies und waere
   // beim Build nicht vorhanden. Deshalb hier ausdruecklich mit.
   run(APP, "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
   run(APP, "npm", ["run", "build"]);
 } else {
-  console.log("[start] dist/ vorhanden, starte ohne Build");
+  console.log("[start] dist/ ist aktuell, starte ohne Build");
 }
 
 await import(pathToFileURL(ENTRY).href);
