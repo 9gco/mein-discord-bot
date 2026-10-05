@@ -6,6 +6,32 @@ VisiHost und NexCloud. Alle ohne Kreditkarte, alle Pterodactyl.
 Diese Anleitung ist die Alternative zu `deploy/setup-vm.sh`, das eine echte VM
 mit root und systemd voraussetzt. Im Panel gibt es beides nicht.
 
+## Kein Push-Deploy möglich
+
+Die Client-API von Monkey Network ist laut ihrer OpenAPI-Spezifikation
+(`https://monkey-network.xyz/openapi.json`) eine Teilmenge des Pterodactyl-Apis
+mit genau drei lesenden Endpoints: Serverliste, Serverdetails, Ressourcen.
+Es gibt kein `power` und kein `files/write`. Damit lässt sich aus GitHub Actions
+nichts hochladen und nichts neustarten – anders als auf der VM, wo der
+self-hosted Runner das lokal erledigt.
+
+Updates laufen deshalb über `release.ps1` plus SFTP-Upload und einen Klick auf
+Start im Panel. Für einen Push auf `main` ist das OK, weil der Bot ohnehin
+nicht deployt, sondern nur liest.
+
+## Renewal: alle 14 Tage bestätigen
+
+Monkey Network wirbt auf der Startseite mit "free forever", im FAQ steht aber:
+jeder Server muss **alle 14 Tage** über das Lifecycle-System bestätigt werden.
+Wird das verpasst, gilt der Server als inaktiv und kann zurückgefordert werden.
+Die Startseite verschweigt das, deshalb hier ausdrücklich.
+
+"HeavenCloud bestätigt nach 7 Tagen", Monkey Network nach 14. Wer das
+vergisst, verliert die Konfiguration und muss den Bot neu hochladen.
+
+Frei ist Monkey Network außerdem nur "für die Lebensdauer von MonkeyBytes
+Hosting selbst" - ein Nicht-Profit-Projekt, kein Unternehmen mit Vertrag.
+
 ## RAM: 512 MB reichen
 
 Auf diesem Rechner gemessen, nicht geschätzt:
@@ -23,20 +49,26 @@ und begrenzt den Node-Heap auf 60 % davon, damit der OOM-Killer nicht zuschlägt
 
 ## 1. Release erzeugen
 
-node_modules und .git gehören nicht ins Archiv. `git archive` nimmt nur
-versionierte Dateien mit und lässt lokale Installationen automatisch weg:
-
 ```powershell
-git archive --format=zip --output="$env:USERPROFILE\Desktop\mdb-release.zip" main
+powershell -ExecutionPolicy Bypass -File deploy\pterodactyl\release.ps1
 ```
 
-Das Archiv enthält `dist/` **nicht**, weil `dist/` in `.gitignore` steht. Das ist
-richtig so: der Build läuft im Container, weil `ffmpeg-static` sein Binary erst
-beim `npm ci` passend zur Plattform lädt. Ein hochgeladenes `node_modules` von
-Windows enthält nur `ffmpeg.exe` und der Bot crasht bei der ersten Sprachausgabe.
+Das Skript baut `dist/` und legt auf dem Desktop ein `mdb-release.zip` ab mit
+`dist/`, `package.json`, `package-lock.json` und `deploy/pterodactyl/start.sh`.
+
+`node_modules` gehört nicht ins Archiv, und `dist/` auch nicht ungeprüft: der
+Container baut nichts nach, weil `ffmpeg-static` sein Binary erst beim
+`npm ci` passend zur Plattform lädt. Ein hochgeladenes `node_modules` von
+Windows enthält nur `ffmpeg.exe` und der Bot crasht bei der ersten
+Sprachausgabe mit ENOENT.
+
+Zwei Details, an denen das Skript absichtlich nicht spart: es schreibt die
+Eintragsnamen mit `/` statt mit `\`, weil Windows-ZIPs unter Linux sonst
+Dateien namens `dist\index.js` erzeugen, und es konvertiert `start.sh` nach LF,
+weil mit CRLF die Shebang nicht läuft.
 
 Falls das Panel kein ZIP entpacken kann: lokal entpacken und den Ordner per
-SFTP hochladen (FileZilla, Port aus dem Panel übernehmen).
+SFTP hochladen.
 
 ## 2. Container einrichten
 
@@ -73,13 +105,18 @@ oder die Dateien gelegentlich per SFTP rauskopieren.
 
 Nach einem Push auf GitHub:
 
-1. Release neu erzeugen (`git archive`, siehe 1.)
-2. Archiv in den Container hochladen und entpacken, dabei `data/` und
-   `node_modules/` **nicht** überschreiben
-3. Server im Panel neu starten
+1. `release.ps1` laufen lassen (siehe 1.)
+2. Panel auf **Maintenance Mode**
+3. `mdb-release.zip` per SFTP nach `/home/container/` hochladen und entpacken,
+   dabei `node_modules/` und `data/` nicht überschreiben
+4. Server neu starten
+5. Maintenance Mode wieder aus
 
 `start.sh` vergleicht die Prüfsumme von `package-lock.json` und installiert nur
-bei Änderung neu. Sonst startet der Bot in wenigen Sekunden.
+bei Änderung neu. Danach startet der Bot in wenigen Sekunden.
+
+Das sind vier Handgriffe pro Update. Ein Push-Deploy wäre nur über die API
+möglich, und die ist read-only – siehe oben.
 
 ## Grenzen dieser Hoster
 
