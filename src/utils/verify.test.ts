@@ -247,3 +247,32 @@ describe("Encoding-Reparatur", () => {
     expect(verify.repairMojibake("nur ascii")).toBe("nur ascii");
   });
 });
+
+describe("Satzweise Ansage", () => {
+  it("zerlegt eine Ansage an den Satzzeichen", () => {
+    expect(verify.splitSentences("Eins. Zwei! Drei?")).toEqual([
+      "Eins.",
+      "Zwei!",
+      "Drei?",
+    ]);
+  });
+
+  it("behält einen Satz ohne Satzzeichen als Ganzes", () => {
+    expect(verify.splitSentences("nur ein Satz")).toEqual(["nur ein Satz"]);
+  });
+
+  it("trennt nicht an Dezimalzahlen", () => {
+    // "0,8 Sekunden" darf nicht an der Zahl zerschnitten werden.
+    expect(verify.splitSentences("Ich habe nur 0,8 Sekunden gehört.")).toEqual([
+      "Ich habe nur 0,8 Sekunden gehört.",
+    ]);
+  });
+
+  it("ignoriert überflüssige Leerzeichen", () => {
+    expect(verify.splitSentences("Eins.   Zwei.")).toEqual(["Eins.", "Zwei."]);
+  });
+
+  it("gibt bei leerem Text nichts kaputtes zurück", () => {
+    expect(verify.splitSentences("")).toEqual([""]);
+  });
+});

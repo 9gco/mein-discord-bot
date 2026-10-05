@@ -14,10 +14,10 @@ import {
 import { logger } from "../utils/logger.js";
 import {
   connectToVerifyChannel,
-  fetchTtsAudio,
+  fetchTtsChunks,
   getCachedVerifyConfig,
   getVerifyConfig,
-  playBuffer,
+  playBuffers,
   runExclusive,
   saveVerifyConfig,
   VERIFY_VOICES,
@@ -320,9 +320,9 @@ const command: {
           return;
         }
         const text = cfg.message.replace(/\{user\}/g, interaction.user.displayName);
-        let buffer: Buffer;
+        let buffers: Buffer[];
         try {
-          buffer = await fetchTtsAudio(text, cfg.voice);
+          buffers = await fetchTtsChunks(text, cfg.voice);
         } catch (err) {
           logger.error("Verify-Test: TTS konnte nicht erzeugt werden.", {
             guildId,
@@ -337,7 +337,7 @@ const command: {
           content: "Test-Ansage wird abgespielt – du solltest sie jetzt hören.",
         });
         // Läuft in derselben Warteschlange wie echte Verifizierungen.
-        void runExclusive(guildId, () => playBuffer(connection, buffer));
+        void runExclusive(guildId, () => playBuffers(connection, buffers));
         return;
       } else if (sub === "sprich") {
         if (!cfg.channelId) {
@@ -361,9 +361,9 @@ const command: {
           return;
         }
         const text = interaction.options.getString("text", true);
-        let buffer: Buffer;
+        let buffers: Buffer[];
         try {
-          buffer = await fetchTtsAudio(text, cfg.voice);
+          buffers = await fetchTtsChunks(text, cfg.voice);
         } catch (err) {
           logger.error("Sprich-Test: TTS konnte nicht erzeugt werden.", {
             guildId,
@@ -377,7 +377,9 @@ const command: {
         await interaction.editReply({
           content: `Spricht jetzt mit **${voiceLabel(cfg.voice)}**.`,
         });
-        void runExclusive(guildId, () => playBuffer(connection, buffer));
+        // Satzweise mit Pausen, genau wie die echten Ansagen - der Test soll
+        // zeigen, was man danach auch wirklich hört.
+        void runExclusive(guildId, () => playBuffers(connection, buffers));
         return;
       } else if (group === "role") {
         if (sub === "add") {

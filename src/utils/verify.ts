@@ -235,28 +235,31 @@ function normalizeConfig(stored: Partial<VerifyConfig> | undefined): VerifyConfi
         : undefined;
 
   // Gespeicherte Texte aus einer älteren Fassung würden sonst weiter vorgelesen.
-  // Sie werden durch die aktuellen Standardtexte ersetzt – Voice, Kanäle und
-  // Rollen bleiben unangetastet.
-  const keepStoredTexts = stored?.textsVersion === TEXTS_VERSION;
+  // Sie werden durch die aktuellen Standardtexte ersetzt – Kanäle und Rollen
+  // bleiben unangetastet. Die Stimme wandert mit: die alte Voreinstellung war
+  // bewusst gewählt worden, also gehört sie zum selben Neustand. Wer später
+  // eine andere Stimme wählt, bleibt dabei, weil danach kein Wechsel mehr
+  // stattfindet.
+  const useNewDefaults = stored?.textsVersion !== TEXTS_VERSION;
 
   return {
     enabled: stored?.enabled ?? DEFAULT_CONFIG.enabled,
     channelId: stored?.channelId || VERIFY_CHANNEL_ID,
     waitingChannelId: stored?.waitingChannelId || WAITING_CHANNEL_ID,
 
-    message: keepStoredTexts
-      ? storedText(stored?.message, DEFAULT_CONFIG.message)
-      : DEFAULT_CONFIG.message,
-    micFailedMessage: keepStoredTexts
-      ? storedText(stored?.micFailedMessage, DEFAULT_CONFIG.micFailedMessage)
-      : DEFAULT_CONFIG.micFailedMessage,
-    speakNowMessage: keepStoredTexts
-      ? storedText(stored?.speakNowMessage, DEFAULT_CONFIG.speakNowMessage)
-      : DEFAULT_CONFIG.speakNowMessage,
-    micPassedMessage: keepStoredTexts
-      ? storedText(stored?.micPassedMessage, DEFAULT_CONFIG.micPassedMessage)
-      : DEFAULT_CONFIG.micPassedMessage,
-    voice: storedVoice || DEFAULT_CONFIG.voice,
+    message: useNewDefaults
+      ? DEFAULT_CONFIG.message
+      : storedText(stored?.message, DEFAULT_CONFIG.message),
+    micFailedMessage: useNewDefaults
+      ? DEFAULT_CONFIG.micFailedMessage
+      : storedText(stored?.micFailedMessage, DEFAULT_CONFIG.micFailedMessage),
+    speakNowMessage: useNewDefaults
+      ? DEFAULT_CONFIG.speakNowMessage
+      : storedText(stored?.speakNowMessage, DEFAULT_CONFIG.speakNowMessage),
+    micPassedMessage: useNewDefaults
+      ? DEFAULT_CONFIG.micPassedMessage
+      : storedText(stored?.micPassedMessage, DEFAULT_CONFIG.micPassedMessage),
+    voice: useNewDefaults ? DEFAULT_CONFIG.voice : storedVoice || DEFAULT_CONFIG.voice,
     roles: Array.isArray(stored?.roles) ? stored.roles : [],
     textsVersion: TEXTS_VERSION,
   };
@@ -342,6 +345,41 @@ export async function fetchTtsAudio(text: string, voice: string): Promise<Buffer
   }
   return buffer;
 }
+
+/**
+ * Zerlegt eine Ansage in Sätze. Jeder Satz wird einzeln synthetisiert und mit
+ * einer kurzen Pause dazwischen abgespielt.
+ *
+ * Eine Ansage am Stück liest die Stimme in einem Zug durch, ohne Luft zu
+ * holen – das klingt immer nach Ansage und nie nach einem Gespräch. Mit den
+ * Pausen dazwischen hört es sich an, als spräche jemand.
+ */
+export function splitSentences(text: string): string[] {
+  const sentences = text
+    .split(/(?<=[.!?…])\s+/u)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return sentences.length > 0 ? sentences : [text];
+}
+
+/**
+ * Synthetisiert eine Ansage satzweise. Zwei Vorteile: Der Cache trifft viel
+ * häufiger, weil sich ein geänderter Satz nicht auf alle anderen auswirkt, und
+ * die Wiedergabe kann zwischen den Sätzen pausieren.
+ */
+export async function fetchTtsChunks(text: string, voice: string): Promise<Buffer[]> {
+  const buffers: Buffer[] = [];
+  // Bewusst nacheinander: jeder Satz öffnet eine eigene Verbindung zum
+  // Sprachdienst, mehrere parallel wären dort unhöflich und würden gern
+  // gedrosselt.
+  for (const sentence of splitSentences(text)) {
+    buffers.push(await fetchTtsAudio(sentence, voice));
+  }
+  return buffers;
+}
+
+/** Pause zwischen zwei Sätzen einer Ansage. */
+export const SENTENCE_GAP_MS = 320;
 
 async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
   const tts = new MsEdgeTTS();
@@ -618,6 +656,28 @@ export function playBuffer(
     connection.subscribe(player);
     player.play(resource);
   });
+}
+
+/**
+ * Spielt mehrere Audiodateien hintereinander ab und hält zwischen den Stücken
+ * eine kurze Pause. Die Pausen sind der eigentliche Grund für diese Funktion:
+ * ohne sie läuft die Ansage ohne Unterbrechung durch.
+ */
+export async function playBuffers(
+  connection: VoiceConnection,
+  buffers: readonly Buffer[],
+  signal?: AbortSignal,
+  gapMs: number = SENTENCE_GAP_MS,
+): Promise<void> {
+  for (const [index, buffer] of buffers.entries()) {
+    throwIfAborted(signal);
+    await playBuffer(connection, buffer, signal);
+    if (index < buffers.length - 1) {
+      // Ein Abbruch beim Warten soll den Abbruch weiterreichen, nicht die
+      // Ansage beenden - das übernimmt throwIfAborted im nächsten Durchlauf.
+      await abortableDelay(gapMs, signal).catch(() => undefined);
+    }
+  }
 }
 
 /**

@@ -14,13 +14,13 @@ import {
   cooldownRemaining,
   dequeueWaiting,
   enqueueWaiting,
-  fetchTtsAudio,
+  fetchTtsChunks,
   getVerifyConfig,
   isMemberInChannel,
   isWaiting,
   logVerifyPermissions,
   peekFirstEligible,
-  playBuffer,
+  playBuffers,
   renumberWaiting,
   runExclusive,
   runMicCheck,
@@ -137,9 +137,9 @@ async function speak(
       "Mitglied hat den Prüf-Kanal während der Wartezeit verlassen.",
     );
   }
-  const buffer = await fetchTtsAudio(text, voice);
+  const buffers = await fetchTtsChunks(text, voice);
   throwIfAborted(signal);
-  await playBuffer(connection, buffer, signal);
+  await playBuffers(connection, buffers, signal);
   throwIfAborted(signal);
 }
 
