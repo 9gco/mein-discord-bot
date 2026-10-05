@@ -97,7 +97,7 @@ const DEFAULT_CONFIG: VerifyConfig = {
   micPassedMessage:
     "Perfekt, {user}, dein Mikrofon funktioniert einwandfrei. Ich schließe die " +
     "Prüfung ab und schalte die Kanäle für dich frei.",
-  voice: "de-DE-KatjaNeural",
+  voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
 };
 
@@ -289,8 +289,11 @@ const ttsCache = new Map<string, Buffer>();
  * Sprechtempo und Betonung fuer die Ansagen. Beides ist ueber die Umgebung
  * anpassbar, ohne Code zu aendern: TTS_RATE=-20% macht langsamer,
  * TTS_RATE=+20% schneller, TTS_PITCH=+5Hz hoeher.
+ *
+ * -18% war zu deutlich - das klang inzwischen wie ein Zeitraffer. -5% laesst
+ * Satzbetontung und Pausen hoeren, ohne zu schleppen.
  */
-const TTS_RATE = process.env["TTS_RATE"]?.trim() || "-18%";
+const TTS_RATE = process.env["TTS_RATE"]?.trim() || "-5%";
 const TTS_PITCH = process.env["TTS_PITCH"]?.trim() || "+2Hz";
 
 export async function fetchTtsAudio(text: string, voice: string): Promise<Buffer> {
@@ -316,10 +319,9 @@ async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
   try {
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     const { audioStream } = tts.toStream(text, {
-      // Ansagen werden im Voice-Kanal gehört, nicht am Schreibtisch. Mit dem
-      // Standardtempo ist der Text im Kanal schwer zu verstehen. Etwas
-      // langsamer und minimal höher klingt deutlich klarer, nicht träger.
-      // Überschreiben mit TTS_RATE, z. B. TTS_RATE=-30% oder TTS_RATE=slow.
+      // Ansagen werden im Voice-Kanal gehört, nicht am Schreibtisch. Das
+      // Standardtempo ist im Kanal etwas zu hastig, -5% gibt der Betonung Raum,
+      // ohne träge zu wirken. Ueberschreiben mit TTS_RATE, z. B. TTS_RATE=0%.
       rate: TTS_RATE,
       pitch: TTS_PITCH,
     });

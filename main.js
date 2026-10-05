@@ -18,7 +18,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, statfsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -117,6 +117,139 @@ function resolveAppDir() {
 
 const { dir: APP } = resolveAppDir();
 const ENTRY = join(APP, "dist", "index.js");
+const DIST = join(APP, "dist");
+const DIST_BACKUP = `${DIST}.previous`;
+const STATE = process.env.PERSISTENT_DATA_DIR || join(HOME, "data");
+
+const PENDING_FILE = join(STATE, ".pending-sha");
+const ATTEMPT_FILE = join(STATE, ".pending-attempt");
+const BOOTED_FILE = join(STATE, ".booted");
+const SYNCED_FILE = join(STATE, ".synced-sha");
+
+/** Wie lange der neue Build nach einem Update Zeit bekommt, sich anzumelden. */
+const BOOT_GRACE_MS = 150_000;
+
+/**
+ * Freier Speicher auf der Platte, auf der der Bot liegt. Der Free-Tier-Host hat
+ * rund 2 GB - `npm ci` in einem zweiten Verzeichnis hat da schon in
+ * "no space left on device" gelaufen. Die Zahl steht jetzt im Log, damit das
+ * nicht wieder überraschend auftritt.
+ */
+function logFreeSpace() {
+  try {
+    const { bavail, bsize } = statfsSync(APP);
+    console.log(`[start] Freier Speicher: ${Math.round((bavail * bsize) / 1024 / 1024)} MB`);
+  } catch {
+    /* Nicht jeder Host erlaubt die Abfrage - dann eben keine Ausgabe. */
+  }
+}
+
+function runSafe(cwd, command, args) {
+  try {
+    run(cwd, command, args);
+  } catch {
+    /* Bestmoeglich: der Cache ist nur eine Optimierung. */
+  }
+}
+
+/**
+ * Meldet dem Rollback-Wächter, dass dieser Start der erste Versuch war. Existiert
+ * die Datei schon, war der vorige Start ohne Anmeldung zu Ende - dann muss
+ * zurückgerollt werden, sonst startet der Bot endlos in denselben Fehler.
+ */
+function claimPendingAttempt() {
+  if (existsSync(ATTEMPT_FILE)) return false;
+  try {
+    writeFileSync(ATTEMPT_FILE, `${Date.now()}\n`, "utf8");
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function readPending() {
+  try {
+    const [sha, prevSha] = readFileSync(PENDING_FILE, "utf8").trim().split(/\s+/);
+    return sha && prevSha ? { sha, prevSha } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Nimmt das Update an: Der Bot hat sich angemeldet, also den neuen Stand
+ * bestätigt. Marker und Backup koennen weg.
+ */
+function confirmPending() {
+  rmSync(PENDING_FILE, { force: true });
+  rmSync(ATTEMPT_FILE, { force: true });
+  rmSync(DIST_BACKUP, { recursive: true, force: true });
+}
+
+/**
+ * Setzt den Stand von vor dem Update wieder her: Quellen per `git reset` und der
+ * gebaute Code aus `dist.previous`. Danach beendet sich der Prozess, damit der
+ * Host mit dem alten Stand neu startet.
+ */
+function rollback(pending) {
+  console.error(`[start] letzter Start blieb ohne Anmeldung - Rollback auf ${pending.prevSha.slice(0, 8)}`);
+  if (existsSync(join(APP, ".git"))) {
+    runSafe(APP, "git", ["reset", "--hard", pending.prevSha]);
+  }
+  if (existsSync(DIST_BACKUP)) {
+    rmSync(DIST, { recursive: true, force: true });
+    try {
+      renameSync(DIST_BACKUP, DIST);
+    } catch (err) {
+      console.error("[start] Rollback fehlgeschlagen:", err.message);
+    }
+  }
+  try {
+    writeFileSync(SYNCED_FILE, `${pending.prevSha}\n`, "utf8");
+    rmSync(PENDING_FILE, { force: true });
+    rmSync(ATTEMPT_FILE, { force: true });
+  } catch {
+    /* Zustandsdateien sind nur Komfort. */
+  }
+  console.error("[start] Rollback fertig, der Host startet neu. Im Log sollte danach 'Bot ist online' stehen.");
+  process.exit(1);
+}
+
+/**
+ * Beobachtet, ob der neue Build sich anmeldet. Bleibt das aus, wird der alte
+ * Stand wiederhergestellt - ein fehlerhafter Push darf den Bot nicht dauerhaft
+ * ausser Betrieb nehmen.
+ */
+function watchForBootConfirmation(pending) {
+  const deadline = Date.now() + BOOT_GRACE_MS;
+  const poll = setInterval(() => {
+    if (existsSync(BOOTED_FILE)) {
+      clearInterval(poll);
+      console.log("[start] Neustart erfolgreich, Update ist bestätigt");
+      confirmPending();
+      return;
+    }
+    if (Date.now() >= deadline) {
+      clearInterval(poll);
+      rollback(pending);
+    }
+  }, 5_000);
+  poll.unref?.();
+}
+
+const pending = readPending();
+if (pending) {
+  if (existsSync(BOOTED_FILE)) {
+    console.log("[start] vorheriges Update ist bestätigt, räume auf");
+    confirmPending();
+  } else if (claimPendingAttempt()) {
+    console.log(`[start] Update ${pending.sha.slice(0, 8)} wird geprüft - Absturz innerhalb von ${BOOT_GRACE_MS / 1000}s wird zurückgerollt`);
+    watchForBootConfirmation(pending);
+  } else {
+    // Zweiter Versuch ohne Anmeldung: der neue Build kommt nicht hoch.
+    rollback(pending);
+  }
+}
 
 /**
  * Zeitstempel der juengsten Quelldatei. `git pull` setzt die Aenderungszeit
@@ -147,6 +280,23 @@ function newestSourceMtime(dir) {
   return newest;
 }
 
+/**
+ * Müssen die Pakete neu installiert werden?
+ *
+ * `npm install` legt `node_modules` neu an; auf der kleinen Platte des Hosts
+ * kostet das rund 165 MB und gut eine Minute. Wenn nur Quelltext geaendert
+ * wurde, reicht `npm run build`. Als Massstab dient `node_modules/.package-lock.json`,
+ * das npm bei jeder Installation selbst schreibt: ist die `package-lock.json`
+ * im Repository aelter, passen die Pakete noch.
+ */
+function needsInstall(dir) {
+  const lock = join(dir, "package-lock.json");
+  const marker = join(dir, "node_modules", ".package-lock.json");
+  if (!existsSync(join(dir, "node_modules", "discord.js"))) return true;
+  if (!existsSync(lock) || !existsSync(marker)) return true;
+  return statSync(lock).mtimeMs > statSync(marker).mtimeMs;
+}
+
 let needsBuild = !existsSync(ENTRY);
 let reason = "dist/index.js fehlt";
 
@@ -161,13 +311,22 @@ if (!needsBuild) {
 
 if (needsBuild) {
   console.log(`[start] ${reason}, baue jetzt`);
-  // Das Egg installiert vorher mit `npm install --production`, also ohne
-  // Dev-Dependencies. TypeScript gehoert zu den Dev-Dependencies und waere
-  // beim Build nicht vorhanden. Deshalb hier ausdruecklich mit.
-  run(APP, "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
+  if (needsInstall(APP)) {
+    // Das Egg installiert vorher mit `npm install --production`, also ohne
+    // Dev-Dependencies. TypeScript gehoert zu den Dev-Dependencies und waere
+    // beim Build nicht vorhanden. Deshalb hier ausdruecklich mit.
+    run(APP, "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
+    // Der Cache waechst sonst ueber die Updates auf mehrere hundert MB an und
+    // war die haeufigste Ursache fuer "no space left on device".
+    runSafe(APP, "npm", ["cache", "clean", "--force"]);
+  } else {
+    console.log("[start] node_modules passt zur package-lock.json, npm install entfällt");
+  }
   run(APP, "npm", ["run", "build"]);
 } else {
   console.log("[start] dist/ ist aktuell, starte ohne Build");
 }
+
+logFreeSpace();
 
 await import(pathToFileURL(ENTRY).href);
