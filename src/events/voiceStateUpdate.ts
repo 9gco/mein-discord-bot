@@ -73,19 +73,11 @@ const MIC_START_DELAY_MS = 1_200;
 const MEMBER_JOIN_TIMEOUT_MS = 30_000;
 
 /**
- * Schonzeit nach erfolgreichem Check, bevor der Bot das Mitglied aus dem Call
- * holt. Ohne sie wirkt das Trennen wie eine Strafe – die Erfolgsansage ist
- * gerade erst zu Ende, die Rollen noch nicht sichtbar.
+ * So lange bleibt das Mitglied nach erfolgreichem Check noch im Kanal, bevor
+ * der Bot es herausholt. Ohne die Zeit wirkt das Trennen wie eine Strafe – die
+ * Erfolgsansage ist gerade erst zu Ende, die Rollen noch nicht sichtbar.
  */
 const MIC_PASS_GRACE_MS = 3_000;
-
-/**
- * Ansage direkt vor dem Trennen. Wer weiß, dass er gleich rausgeholt wird,
- * empfindet es nicht als Rauswurf – die Channels sind ab da frei.
- */
-const MIC_PASS_DISCONNECT_MESSAGE =
-  "Sehr gut, damit bist du durch. Vielen Dank für deine Geduld " +
-  "und viel Spaß auf unserem Server.";
 
 /**
  * Wie viele Prüfversuche ein Mitglied im Prüf-Kanal bekommt, bevor es in die
@@ -434,17 +426,11 @@ const problem = describeMicProblem(result.reason ?? "error");
       await grantVerifyRoles(guild, member, cfg.roles);
       clearCooldown(guild.id, member.id);
 
-      // Erst jetzt wird das Mitglied aus dem Call geholt: Ansage ist
-      // ausgesprochen und die Rollen stehen. Vorher wirkt das Trennen wie
-      // eine Strafe, weil die Freigabe noch gar nicht angekommen ist.
-      await speak(
-        guild,
-        verifyChannelId,
-        MIC_PASS_DISCONNECT_MESSAGE,
-        cfg.voice,
-        member.id,
-        signal,
-      );
+      // Danach wird das Mitglied aus dem Call geholt, ohne weitere Ansage.
+      // Die Erfolgsansage trägt den Abschluss bereits: sie nennt das Ergebnis
+      // und den Zugang zum Server. Eine zweite Ansage direkt danach wiederholt
+      // nur, was gerade gesagt wurde - und wer zum ersten Mal durch den
+      // Ablauf geht, hört sie als Echo.
       await abortableDelay(MIC_PASS_GRACE_MS, signal);
     } else {
       // 6b) Alle Versuche durch: Wartezeit setzen, damit die Schlange
