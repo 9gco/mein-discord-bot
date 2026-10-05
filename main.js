@@ -2,14 +2,19 @@
  * Einstiegspunkt fuer Hosts, die nur einen festen Startbefehl anbieten.
  *
  * Das Pterodactyl-NodeJS-Egg auf Monkey Network laesst den Startbefehl nicht
- * aendern. Es macht immer genau drei Dinge: `git pull`, `npm install` und
+ * aendern. Es macht immer: `git pull`, `npm install --production`, dann
  * `node <Hauptdatei>`. Deshalb ist `main.js` die Hauptdatei statt
- * `dist/index.js` - dist/ ist nicht im Repository, weil es aus .gitignore
- * stammt und nach jedem `git pull` fehlen wuerde.
+ * `dist/index.js`, und es bringt seinen Code selbst mit, falls das Egg nichts
+ * geklont hat.
  *
- * Dieses Skript baut deshalb einmalig und startet danach den Bot. Der
- * Selbst-Update-Mechanismus in src/utils/autoUpdate.ts uebernimmt spaetere
- * Updates; dieser Pfad greift nur beim allerersten Start.
+ * Reihenfolge:
+ *   1. Code holen   - entweder hat das Egg schon geklont, sonst wird hier
+ *                     nach /home/container/app geklont
+ *   2. Bauen        - dist/ ist gitignored und fehlt nach jedem git pull
+ *   3. Starten      - dist/index.js wird importiert
+ *
+ * Ohne Token laeuft der Bot bis zur Konfigurationspruefung und bricht dann mit
+ * einer klaren Meldung ab.
  */
 
 import { execFileSync } from "node:child_process";
@@ -17,41 +22,60 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const ROOT = dirname(fileURLToPath(import.meta.url));
-const ENTRY = join(ROOT, "dist", "index.js");
+const HOME = dirname(fileURLToPath(import.meta.url));
+const REPO = process.env.GIT_REPO_URL || "https://github.com/9gco/mein-discord-bot.git";
+const BRANCH = process.env.GIT_INSTALL_BRANCH || "main";
 
-function run(command, args) {
+function run(cwd, command, args) {
   console.log(`[start] ${command} ${args.join(" ")}`);
   // Unter Windows heisst npm "npm.cmd", was execFile ohne Shell nicht findet.
   // Im Container ist npm ein normales Programm, die Shell schadet dort nicht.
   execFileSync(command, args, {
-    cwd: ROOT,
+    cwd,
     stdio: "inherit",
     shell: process.platform === "win32",
   });
 }
 
-function ensureBuild() {
-  if (existsSync(ENTRY)) {
-    console.log("[start] dist/ vorhanden, starte ohne Build");
-    return;
+/**
+ * Liefert das Verzeichnis, in dem das Projekt liegt, und holt es bei Bedarf.
+ * Legt das Egg nichts an, wird nach app/ geklont - `git clone` in ein
+ * vorhandenes, nicht leeres Verzeichnis schlaegt sonst fehl, und app/ ist
+ * durch main.js bereits belegt.
+ */
+function resolveAppDir() {
+  if (existsSync(join(HOME, "package.json"))) {
+    console.log("[start] Repository liegt direkt im Container, nutze es");
+    return { dir: HOME, own: true };
   }
 
-  console.log("[start] dist/index.js fehlt, baue jetzt");
-
-  if (existsSync(join(ROOT, ".git"))) {
-    run("git", ["pull", "--ff-only"]);
+  const app = join(HOME, "app");
+  if (!existsSync(join(app, "package.json"))) {
+    console.log(`[start] kein Code im Container, klone ${REPO}`);
+    execFileSync("git", ["clone", "--depth", "1", "--single-branch", "--branch", BRANCH, REPO, app], {
+      cwd: HOME,
+      stdio: "inherit",
+    });
   } else {
-    console.log("[start] kein .git vorhanden - erwartet wird ein geklontes Repository");
+    run(app, "git", ["pull", "--ff-only"]);
   }
 
-  // Das Egg installiert vorher mit `npm install --production`, also ohne
-  // Dev-Dependencies. TypeScript gehoert aber zu den Dev-Dependencies und
-  // waere beim Build nicht vorhanden. Deshalb hier ausdruecklich mit.
-  run("npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
-
-  run("npm", ["run", "build"]);
+  console.log("[start] Projektverzeichnis:", app);
+  return { dir: app, own: false };
 }
 
-ensureBuild();
+const { dir: APP } = resolveAppDir();
+const ENTRY = join(APP, "dist", "index.js");
+
+if (!existsSync(ENTRY)) {
+  console.log("[start] dist/index.js fehlt, baue jetzt");
+  // Das Egg installiert vorher mit `npm install --production`, also ohne
+  // Dev-Dependencies. TypeScript gehoert zu den Dev-Dependencies und waere
+  // beim Build nicht vorhanden. Deshalb hier ausdruecklich mit.
+  run(APP, "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
+  run(APP, "npm", ["run", "build"]);
+} else {
+  console.log("[start] dist/ vorhanden, starte ohne Build");
+}
+
 await import(pathToFileURL(ENTRY).href);
