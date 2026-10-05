@@ -124,6 +124,17 @@ const command: {
         .setName("test")
         .setDescription("Spielt die aktuelle Ansage einmal ab (Test)."),
     )
+    .addSubcommand((sub) =>
+      sub
+        .setName("sprich")
+        .setDescription("Spricht einen eigenen Text mit der aktuellen Stimme.")
+        .addStringOption((o) =>
+          o
+            .setName("text")
+            .setDescription("Der Text, der gesprochen werden soll.")
+            .setRequired(true),
+        ),
+    )
     .addSubcommandGroup((group) =>
       group
         .setName("role")
@@ -326,6 +337,46 @@ const command: {
           content: "Test-Ansage wird abgespielt – du solltest sie jetzt hören.",
         });
         // Läuft in derselben Warteschlange wie echte Verifizierungen.
+        void runExclusive(guildId, () => playBuffer(connection, buffer));
+        return;
+      } else if (sub === "sprich") {
+        if (!cfg.channelId) {
+          await interaction.editReply({
+            content: "Setze zuerst einen Kanal mit `/verify channel`.",
+          });
+          return;
+        }
+        const channel = guild.channels.cache.get(cfg.channelId);
+        if (!channel?.isVoiceBased()) {
+          await interaction.editReply({
+            content: "Der konfigurierte Kanal ist kein Voice-Kanal.",
+          });
+          return;
+        }
+        const connection = await connectToVerifyChannel(guild, cfg.channelId);
+        if (!connection) {
+          await interaction.editReply({
+            content: "Verbindung fehlgeschlagen. Prüfe die Bot-Permissions.",
+          });
+          return;
+        }
+        const text = interaction.options.getString("text", true);
+        let buffer: Buffer;
+        try {
+          buffer = await fetchTtsAudio(text, cfg.voice);
+        } catch (err) {
+          logger.error("Sprich-Test: TTS konnte nicht erzeugt werden.", {
+            guildId,
+            error: err,
+          });
+          await interaction.editReply({
+            content: "Der Text konnte nicht erzeugt werden. Prüfe die Logs.",
+          });
+          return;
+        }
+        await interaction.editReply({
+          content: `Spricht jetzt mit **${voiceLabel(cfg.voice)}**.`,
+        });
         void runExclusive(guildId, () => playBuffer(connection, buffer));
         return;
       } else if (group === "role") {

@@ -285,8 +285,18 @@ export async function saveVerifyConfig(
 const TTS_CACHE_LIMIT = 40;
 const ttsCache = new Map<string, Buffer>();
 
+/**
+ * Sprechtempo und Betonung fuer die Ansagen. Beides ist ueber die Umgebung
+ * anpassbar, ohne Code zu aendern: TTS_RATE=-20% macht langsamer,
+ * TTS_RATE=+20% schneller, TTS_PITCH=+5Hz hoeher.
+ */
+const TTS_RATE = process.env["TTS_RATE"]?.trim() || "-18%";
+const TTS_PITCH = process.env["TTS_PITCH"]?.trim() || "+2Hz";
+
 export async function fetchTtsAudio(text: string, voice: string): Promise<Buffer> {
-  const cacheKey = `${voice}::${text}`;
+  // Das Tempo ist Teil des Cache-Schlüssels: wird TTS_RATE geändert, darf der
+  // alte, schnellere Ton nicht mehr aus dem Cache kommen.
+  const cacheKey = `${voice}::${TTS_RATE}::${text}`;
   const cached = ttsCache.get(cacheKey);
   if (cached) return cached;
 
@@ -305,7 +315,14 @@ async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
   const tts = new MsEdgeTTS();
   try {
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const { audioStream } = tts.toStream(text);
+    const { audioStream } = tts.toStream(text, {
+      // Ansagen werden im Voice-Kanal gehört, nicht am Schreibtisch. Mit dem
+      // Standardtempo ist der Text im Kanal schwer zu verstehen. Etwas
+      // langsamer und minimal höher klingt deutlich klarer, nicht träger.
+      // Überschreiben mit TTS_RATE, z. B. TTS_RATE=-30% oder TTS_RATE=slow.
+      rate: TTS_RATE,
+      pitch: TTS_PITCH,
+    });
     const chunks: Buffer[] = [];
     await new Promise<void>((resolve, reject) => {
       audioStream.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
