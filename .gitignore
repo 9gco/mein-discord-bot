@@ -4,5 +4,9 @@ dist/
 .env
 .env.local
 .env.*.local
+# Enthaelt Zugangsdaten. Darf nie ins Repository.
+bot.env
+*.env
+!*.env.example
 *.log
 *.tsbuildinfo
