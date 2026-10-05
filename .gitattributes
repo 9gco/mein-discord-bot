@@ -1,0 +1,6 @@
+# Die Deploy-Skripte laufen nur auf Linux. Mit CRLF bricht die Shell an den
+# Shebang-Zeilen ab, deshalb hier LF erzwingen - unabhaengig davon, wie die
+# Einstellungen des jeweiligen Rechners aussehen.
+*.sh text eol=lf
+deploy/*.service text eol=lf
+*.yml text eol=lf

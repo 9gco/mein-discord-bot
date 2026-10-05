@@ -1,0 +1,47 @@
+[Unit]
+Description=Mein Discord Bot (Verifizierung mit Voice)
+Documentation=https://github.com/9gco/mein-discord-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/opt/mein-discord-bot
+
+# Zugangsdaten liegen in der .env neben dem Code (chmod 600, nur fuer bot).
+# PERSISTENT_DATA_DIR ist bewusst nicht hier gesetzt, sondern in der .env –
+# dort liegt auch die Logstufe.
+EnvironmentFile=/opt/mein-discord-bot/.env
+Environment=NODE_ENV=production
+
+ExecStart=/usr/bin/node dist/index.js
+
+# Der Bot soll nach einem Crash oder einem Netzwerkaussetzer wieder laufen.
+Restart=always
+RestartSec=10
+# Nach 5 Fehlversuchen 2 Minuten warten, dann ist Schluss: endloses Neustarten
+# eines kaputten Deployments soll nicht den Server fluten.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Der Voice-Teil braucht einen Socket, die TTS-Ansagen rechnen mit ffmpeg.
+LimitNOFILE=65535
+
+# Nur das Datenverzeichnis ist beschreibbar – im Code-Verzeichnis hat der
+# Bot nichts zu schreiben.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/mein-discord-bot
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mein-discord-bot
+
+[Install]
+WantedBy=multi-user.target
