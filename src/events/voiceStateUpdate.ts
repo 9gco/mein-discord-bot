@@ -32,6 +32,7 @@ import {
   waitForSilence,
   VerifyAbortedError,
   WAITING_CHANNEL_ID,
+  type MicCheckReason,
   type MicCheckResult,
   type VerifyConfig,
   VERIFIED_ROLE_ID,
@@ -82,9 +83,7 @@ const MIC_PASS_GRACE_MS = 3_000;
  * Ansage direkt vor dem Trennen. Wer weiß, dass er gleich rausgeholt wird,
  * empfindet es nicht als Rauswurf – die Channels sind ab da frei.
  */
-const MIC_PASS_DISCONNECT_MESSAGE =
-  "Super, du bist durch. Ich schick dich jetzt raus. " +
-  "Schau dann einfach in die Channels.";
+const MIC_PASS_DISCONNECT_MESSAGE = "Super, du bist durch. Viel Spaß gleich dir!";
 
 /**
  * Wie viele Prüfversuche ein Mitglied im Prüf-Kanal bekommt, bevor es in die
@@ -216,28 +215,26 @@ async function grantVerifyRoles(
  * Übersetzt ein Messergebnis in einen Satz, den der Bot vorlesen kann. Der Text
  * nennt den konkreten Grund, damit das Mitglied weiß, was es ändern muss.
  *
- * Kurze Sätze, ein Gedanke pro Satz: Längere Erklärungen liest die
- * Sprachausgabe flach und langsam vor.
+ * Formuliert wie ein Mensch im Raum: nicht "es liegen nur 0,8 Sekunden Sprechzeit
+ * vor", sondern "das war mir ein bisschen zu kurz". Und ohne jeden Kommentar über
+ * die Technik dahinter - "bei mir kam nichts an" statt "ich habe aus deinem
+ * Mikrofon keinen Ton bekommen".
  */
-function describeMicProblem(result: MicCheckResult): string {
-  switch (result.reason) {
+function describeMicProblem(reason: MicCheckReason): string {
+  switch (reason) {
     case "no_speech":
-      return "Ich habe bei dir überhaupt nichts gehört.";
-    case "too_short": {
-      // "1.2" liest die Stimme als "eins komma zwei"; mit Komma klingt es
-      // deutsch. Die Nachkommastelle bleibt, sonst rundet der Text auf.
-      const seconds = (Math.round(result.speechMs / 100) / 10).toFixed(1).replace(".", ",");
-      return `Ich habe nur ${seconds} Sekunden gehört. Erzähl mir nochmal etwas mehr.`;
-    }
+      return "Da kam bei mir nichts an.";
+    case "too_short":
+      return "Das war mir ein bisschen zu kurz. Erzähl mir nochmal was.";
     case "clipping":
-      return "Dein Mikrofon ist übersteuert. Dreh die Eingabelautstärke etwas runter.";
+      return "Bei dir knackt es gerade. Dreh dein Mikrofon mal etwas runter.";
     case "noisy":
-      return "Bei dir ist mega viel los im Hintergrund. Am besten gehst du mal in einen ruhigeren Raum.";
+      return "Bei dir ist gerade mega viel los. Am besten gehst du mal in einen ruhigeren Raum.";
     case "too_quiet":
-      return "Dein Mikrofon ist mir fast zu leise. Dreh es mal etwas lauter.";
+      return "Ich verstehe dich kaum. Dreh dein Mikrofon mal lauter.";
     case "error":
     default:
-      return "Bei mir ist gerade etwas kaputtgegangen. Versuch es einfach nochmal.";
+      return "Bei mir ist gerade was schiefgegangen. Versuch's einfach nochmal.";
   }
 }
 
@@ -356,7 +353,7 @@ async function runVerify(
         await speak(
           guild,
           verifyChannelId,
-          `Kein Stress, machen wir nochmal. Versuch Nummer ${attempt}.`,
+          "Kein Stress, machen wir nochmal.",
           cfg.voice,
           member.id,
           signal,
@@ -404,7 +401,9 @@ async function runVerify(
       }
 
       // Grund nennen, aber erst nach dem letzten Versuch die Zusatzanweisung.
-      const problem = describeMicProblem(result);
+      // reason ist nur gesetzt, wenn die Prüfung gescheitert ist. Fehlt er, ist
+// etwas Unerwartetes passiert - dann passt die technische Floskel.
+const problem = describeMicProblem(result.reason ?? "error");
       const isLast = attempt === MIC_MAX_ATTEMPTS;
       await speak(
         guild,

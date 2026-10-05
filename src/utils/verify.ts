@@ -89,29 +89,29 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
 /**
  * Standardtexte für die Ansagen.
  *
- * Die Texte sind absichtlich kurz und in ganzen, einfachen Sätzen geschrieben.
- * Eine Sprachausgabe liest lange verschachtelte Sätze betont flach und
- * langsam vor - man hört die Satzbaupläne statt eines Gesprächs. Was ein Mensch
- * im Voice-Chal so sagen würde, liest sich auch gesprochen flüssig.
+ * Zwei Regeln stecken dahinter:
+ *
+ * 1. Der Bot redet wie jemand im Raum, nicht wie ein Assistent. "Ich hole dich
+ *    kurz hier rüber" oder "Ich schalte dich jetzt frei" beschreiben nur die
+ *    Technik hinter der Szene. Ein Mensch sagt das nicht, und man hört sofort,
+ *    dass es synthetisch ist. Gesagt wird, was man von gegenüber sagt.
+ * 2. Kurze Sätze, ein Gedanke pro Satz. Lange, verschachtelte Sätze liest die
+ *    Sprachausgabe betont flach und langsam vor - man hört den Satzbauplan
+ *    statt eines Gesprächs.
  */
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 2;
+const TEXTS_VERSION = 3;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
-  message:
-    "Hey {user}, schön dass du uns gefunden hast. " +
-    "Ich hol dich kurz hier rüber. " +
-    "Wir testen nur kurz dein Mikrofon.",
-  speakNowMessage:
-    "So, {user}, jetzt bist du dran. Sag einfach ein paar Sätze für mich.",
+  message: "Hey {user}, willkommen! Schön, dass du uns gefunden hast.",
+  speakNowMessage: "Sag mir einfach mal was. Erzähl mir irgendwas, ich höre zu.",
   micFailedMessage:
-    "Schau mal kurz in dein Discord, ob das Mikrofon wirklich an ist. " +
-    "Dann komm einfach nochmal zu mir.",
-  micPassedMessage:
-    "Perfekt, {user}, dein Mikrofon passt. Ich schalte dich jetzt frei.",
+    "Schau mal kurz nach, ob dein Mikrofon in Discord wirklich an ist. " +
+    "Dann einfach nochmal.",
+  micPassedMessage: "Perfekt, {user}, man versteht dich super. Viel Spaß gleich.",
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
   textsVersion: TEXTS_VERSION,
