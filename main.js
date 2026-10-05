@@ -18,11 +18,62 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HOME = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Liest eine .env-Datei ohne Dependency. main.js laeuft vor `npm install`,
+ * dotenv waere da also noch nicht verfuegbar - deshalb wird hier von Hand
+ * geparst. `bot.env` wird mitgelesen, weil manche Dateimanager Dateien mit
+ * Punkt am Anfang ausblenden.
+ *
+ * Vorhandene Environment-Variablen des Panels haben Vorrang, damit dort
+ * gesetzte Werte nicht von der Datei ueberschrieben werden.
+ */
+function loadEnvFile(dir) {
+  for (const name of [".env", "bot.env"]) {
+    const file = join(dir, name);
+    if (!existsSync(file)) continue;
+
+    let raw;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+
+    console.log(`[start] Lese ${name}`);
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+
+      const eq = trimmed.indexOf("=");
+      if (eq === -1) continue;
+
+      const key = trimmed.slice(0, eq).trim().replace(/^export\s+/, "");
+      let value = trimmed.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+
+      // Nur den Namen protokollieren, niemals den Wert.
+      if (key && value && process.env[key] === undefined) {
+        process.env[key] = value;
+        console.log(`[start]   gesetzt: ${key}`);
+      }
+    }
+    return;
+  }
+}
+
+loadEnvFile(HOME);
+
 const REPO = process.env.GIT_REPO_URL || "https://github.com/9gco/mein-discord-bot.git";
 const BRANCH = process.env.GIT_INSTALL_BRANCH || "main";
 
