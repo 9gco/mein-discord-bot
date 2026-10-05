@@ -89,37 +89,40 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
 /**
  * Standardtexte für die Ansagen.
  *
- * Woraus sich der Ton ergibt:
+ * Kontext: Der Bot ist die Whitelist eines großen FiveM-RP-Servers. Der Ton
+ * ist deshalb freundlich, aber dienstleistend - ein Moderator im Voice-Chat,
+ * kein Assistent und kein Kumpel. Daraus folgt:
  *
- * 1. Der Bot redet wie jemand im Raum, nicht wie ein Assistent. "Ich hole dich
- *    kurz hier rüber" oder "Ich schalte dich jetzt frei" beschreiben nur die
- *    Technik hinter der Szene. Ein Mensch sagt das nicht, und man hört sofort,
- *    dass es synthetisch ist. Gesagt wird, was man von gegenüber sagt.
- * 2. Ein Gedanke pro Satz, aber keine Stichworte. Sehr kurze Ansagen wirken
- *    abgehackt, wenn sie hintereinander kommen - lieber zwei Sätze, die zusammen
- *    einen Gedanken tragen, als drei Einzelmeldungen.
- * 3. Kein Fachwort und keine Zahl, die niemandem was sagt. "Ich verstehe dich
- *    kaum" ist mehr wert als "es liegen nur 0,8 Sekunden Sprechzeit vor".
+ * 1. Kein Kommentar über die Technik dahinter. "Ich hole dich kurz hier rüber"
+ *    oder "Ich schalte dich jetzt frei" sagt ein Mensch nicht, und man hört
+ *    sofort, dass es synthetisch ist.
+ * 2. Keine Fachbegriffe ohne Nutzen. Statt "es liegen 0,8 Sekunden Sprechzeit
+ *    vor" besser "der Test war etwas zu kurz" - die Zahl musste niemand.
+ * 3. "Voice-Chat" und "Mikrofon" statt "Channel" und "Check". Für einen
+ *    FiveM-Server wäre "Channel" das falsche Wort, das sind Discord-Begriffe.
+ * 4. Eine Ansage ist ein durchgehender Satzgefug, keine Liste. Die Pausen
+ *    entstehen in der Stimme, nicht zwischen abgespielten Dateien.
  */
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 4;
+const TEXTS_VERSION = 5;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
   message:
-    "Hey {user}, willkommen bei uns! Schön, dass du da bist. " +
-    "Ich lass dich gleich kurz was sagen, damit wir uns hier auch unterhalten können.",
+    "Willkommen auf unserem Server, {user}. Schön, dass du es hierher geschafft hast. " +
+    "Damit im Voice-Chat später alles klar und deutlich klingt, " +
+    "prüfen wir jetzt kurz dein Mikrofon.",
   speakNowMessage:
-    "Also, rede einfach mal ein bisschen. " +
-    "Erzähl mir irgendwas, wie dein Tag war oder was du hier so machst.",
+    "Wenn du soweit bist, rede einfach ein paar Sätze. " +
+    "Erzähl mir ruhig etwas Alltägliches, ich höre zu.",
   micFailedMessage:
-    "Geh mal kurz in deinen Discord rein und guck, ob dein Mikrofon wirklich an ist. " +
-    "Wenn es da angehakt ist, geht's nochmal.",
+    "Prüfe bitte kurz deine Mikrofoneinstellungen in Discord und stelle sicher, " +
+    "dass dein Eingabegerät wirklich ausgewählt ist. Danach kannst du es noch einmal versuchen.",
   micPassedMessage:
-    "Perfekt, {user}, man versteht dich richtig gut. " +
-    "Mach dich jetzt in den Channels breit, viel Spaß euch beiden.",
+    "Ausgezeichnet, {user}, deine Stimme kommt klar und deutlich bei mir an. " +
+    "Damit bist du durch und hast Zugang zu unserem Server. Viel Spaß dir.",
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
   textsVersion: TEXTS_VERSION,
@@ -366,22 +369,29 @@ export function splitSentences(text: string): string[] {
 }
 
 /**
- * Fasst die Sätze zu Stücken zusammen, die gemeinsam gesprochen werden.
+ * Teilt eine Ansage nur dann, wenn sie wirklich zu lang für einen einzigen
+ * Spruch ist.
  *
- * Jeder Satz einzeln zu synthetisieren klingt nach Stottern: die Stimme beginnt
- * für zwei bis fünf Sekunden neu, immer im gleichen Abstand, und der ganze
- * Durchlauf wirkt wie eine Ansage aus einem Lautsprecher statt wie ein
- * Gespräch. Innerhalb eines Stücks übernimmt der Sprachdienst die Betonung und
- * die Pausen von selbst – deutlich natürlicher. Geteilt wird nur an Stellen, an
- * denen wirklich ein neuer Gedanke beginnt.
+ * Jeder Satz einzeln zu synthetisieren und mit Pause dazwischen abzuspielen
+ * klang nach Stottern: die Stimme fing alle zwei bis fünf Sekunden neu an und
+ * der ganze Durchlauf wirkte wie eine Ansage aus einem Lautsprecher. Deshalb
+ * bekommen alle realistischen Ansagen einen einzigen Auftrag - Betonung und
+ * Pausen entstehen dann in der Stimme selbst, wo sie hingehören, statt an den
+ * Nahtstellen zwischen zwei Dateien.
  *
- * Die Grenzen liegen großzügig: bis zu drei Sätze oder rund 200 Zeichen. Das
- * sind Stücke von etwa zehn Sekunden, in denen jemand tatsächlich Luft holt.
+ * Getrennt wird nur, wenn ein Text wirklich ungewöhnlich lang ist, und
+ * ausschließlich an Satzgrenzen: mitten im Satz zu schneiden würde die Betonung
+ * zerhacken. Selbst dann gibt es keine eingebaute Pause.
+ *
+ * Rund 900 Zeichen sind etwa anderthalb Minuten Sprache - die Grenze wird bei
+ * normalen Ansagen nie erreicht und ist nur die Sicherung gegen einen
+ * irrsinnig langen Text aus einer alten gespeicherten Konfiguration.
  */
-const CHUNK_MAX_SENTENCES = 3;
-const CHUNK_MAX_CHARS = 200;
+const CHUNK_MAX_CHARS = 900;
 
 export function chunkAnnouncement(text: string): string[] {
+  if (text.length <= CHUNK_MAX_CHARS) return [text];
+
   const chunks: string[] = [];
   let sentences: string[] = [];
   let length = 0;
@@ -394,9 +404,7 @@ export function chunkAnnouncement(text: string): string[] {
   };
 
   for (const sentence of splitSentences(text)) {
-    const tooLong = length > 0 && length + sentence.length + 1 > CHUNK_MAX_CHARS;
-    const tooMany = sentences.length >= CHUNK_MAX_SENTENCES;
-    if (tooLong || tooMany) flush();
+    if (length > 0 && length + sentence.length + 1 > CHUNK_MAX_CHARS) flush();
     sentences.push(sentence);
     length += sentence.length + 1;
   }
@@ -406,9 +414,9 @@ export function chunkAnnouncement(text: string): string[] {
 }
 
 /**
- * Synthetisiert eine Ansage stückweise. Zwei Vorteile: Der Cache trifft viel
- * häufiger, weil sich ein geänderter Satz nicht auf alle anderen auswirkt, und
- * die Wiedergabe kann zwischen den Stücken pausieren.
+ * Synthetisiert eine Ansage. Bei normalen Texten kommt genau ein Stück zurück.
+ * Mehrere Stücke gibt es nur bei außergewöhnlich langen Texten, und auch dann
+ * gibt `fetchTtsChunks` sie ohne Pause nacheinander ab.
  */
 export async function fetchTtsChunks(text: string, voice: string): Promise<Buffer[]> {
   const buffers: Buffer[] = [];
@@ -420,12 +428,6 @@ export async function fetchTtsChunks(text: string, voice: string): Promise<Buffe
   }
   return buffers;
 }
-
-/**
- * Pause zwischen zwei Stücken. Kurz genug, dass sie als Atemholen klingt und
- * nicht als Absatz, lang genug, dass die Stücke nicht aneinanderkleben.
- */
-export const SENTENCE_GAP_MS = 260;
 
 async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
   const tts = new MsEdgeTTS();
@@ -705,20 +707,23 @@ export function playBuffer(
 }
 
 /**
- * Spielt mehrere Audiodateien hintereinander ab und hält zwischen den Stücken
- * eine kurze Pause. Die Pausen sind der eigentliche Grund für diese Funktion:
- * ohne sie läuft die Ansage ohne Unterbrechung durch.
+ * Spielt mehrere Audiodateien hintereinander ab.
+ *
+ * Der Abstand ist bewusst null: eine eingebaute Pause zwischen zwei Stücken
+ * hört man sofort, weil die Stimme an der Nahtstelle neu ansetzt. Stattdessen
+ * entsteht die Pause innerhalb der Ansage - die Stimme atmet von selbst. Bei
+ * normalen Texten kommt ohnehin nur ein einziges Stück hier an.
  */
 export async function playBuffers(
   connection: VoiceConnection,
   buffers: readonly Buffer[],
   signal?: AbortSignal,
-  gapMs: number = SENTENCE_GAP_MS,
+  gapMs = 0,
 ): Promise<void> {
   for (const [index, buffer] of buffers.entries()) {
     throwIfAborted(signal);
     await playBuffer(connection, buffer, signal);
-    if (index < buffers.length - 1) {
+    if (gapMs > 0 && index < buffers.length - 1) {
       // Ein Abbruch beim Warten soll den Abbruch weiterreichen, nicht die
       // Ansage beenden - das übernimmt throwIfAborted im nächsten Durchlauf.
       await abortableDelay(gapMs, signal).catch(() => undefined);

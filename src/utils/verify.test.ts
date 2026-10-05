@@ -278,44 +278,39 @@ describe("Satzweise Ansage", () => {
 });
 
 describe("Ansage in Stücken", () => {
-  // Zu kurze Stücke klingen abgehackt, zu lange holen nicht mehr Luft. Der
-  // wichtigste Fall: kurze Ansagen müssen in EINEM Stück bleiben.
-  it("lässt eine kurze Ansage in einem Stück", () => {
-    expect(verify.chunkAnnouncement("Hey Max, willkommen bei uns!")).toEqual([
-      "Hey Max, willkommen bei uns!",
-    ]);
+  // Der wichtigste Punkt: eine normale Ansage muss ein einziges Stück bleiben.
+  // Jedes Stück wäre eine neue Sprachdatei, und an der Nahtstelle setzt die
+  // Stimme neu an - das hört man als Pause.
+  it("lässt eine ganze Ansage in einem Stück", () => {
+    const text =
+      "Willkommen auf unserem Server, Max. Schön, dass du es hierher geschafft hast. " +
+      "Damit im Voice-Chat später alles klar und deutlich klingt, prüfen wir jetzt kurz dein Mikrofon.";
+    expect(verify.chunkAnnouncement(text)).toEqual([text]);
   });
 
-  it("führt zwei kurze Sätze zusammen", () => {
-    expect(
-      verify.chunkAnnouncement("Hey Max, willkommen bei uns! Schön, dass du da bist."),
-    ).toEqual(["Hey Max, willkommen bei uns! Schön, dass du da bist."]);
+  it("lässt auch Fehlergrund plus Hinweis in einem Stück", () => {
+    // Der längste realistische Fall: Fehlertext und Hilfetext werden aneinander
+    // gesprochen und zusammen über der alten Grenze liegen.
+    const combined =
+      "Bei dir ist sehr viel Hintergrundgeräusch, wodurch ich dich nur schwer verstehen kann. " +
+      "Ein ruhigerer Raum wäre die bessere Wahl. " +
+      "Prüfe bitte kurz deine Mikrofoneinstellungen in Discord und stelle sicher, " +
+      "dass dein Eingabegerät wirklich ausgewählt ist. " +
+      "Danach kannst du es noch einmal versuchen.";
+    expect(combined.length).toBeGreaterThan(200);
+    expect(verify.chunkAnnouncement(combined)).toEqual([combined]);
   });
 
-  it("trennt spätestens nach drei Sätzen", () => {
-    const text = "Eins. Zwei. Drei. Vier.";
-    expect(verify.chunkAnnouncement(text)).toEqual(["Eins. Zwei. Drei.", "Vier."]);
-  });
-
-  it("trennt an der Satzgrenze, wenn ein Stück zu lang würde", () => {
-    const lang = `${"A".repeat(150)}. ${"B".repeat(150)}.`;
+  it("teilt erst bei einem wirklich langen Text", () => {
+    const lang = `${"A".repeat(500)}. ${"B".repeat(500)}.`;
     const chunks = verify.chunkAnnouncement(lang);
     expect(chunks).toHaveLength(2);
     expect(chunks.join(" ")).toBe(lang);
   });
 
-  it("trennt nie mitten im Satz", () => {
-    // Ein einzelner langer Satz bleibt ein Stück: mitten im Satz zu schneiden
-    // würde die Betonung zerhacken.
-    const satz = `${"A".repeat(400)}.`;
+  it("teilt niemals mitten im Satz", () => {
+    const satz = `${"A".repeat(2000)}.`;
     expect(verify.chunkAnnouncement(satz)).toEqual([satz]);
-  });
-
-  it("verliert beim Zusammenfassen keinen Text", () => {
-    const text =
-      "Hey Max, willkommen bei uns! Schön, dass du da bist. " +
-      "Ich lass dich gleich kurz was sagen. Damit wir uns unterhalten können.";
-    expect(verify.chunkAnnouncement(text).join(" ")).toBe(text);
   });
 
   it("behält Text ohne Satzzeichen als ein Stück", () => {
