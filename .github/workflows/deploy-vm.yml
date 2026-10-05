@@ -12,9 +12,13 @@ name: Deploy auf VM
 #      oder in /etc/sudoers.d/ eintragen:
 #         bot ALL=(root) NOPASSWD: /usr/bin/systemctl restart mein-discord-bot
 
+# Manuell ausloesbar, nicht bei jedem Push. Ohne registrierten Runner auf der
+# VM bleibt ein Push-Job sonst ewig in der Warteschlange stehen und der
+# Actions-Tab fuellt sich mit Runs, die nie etwas tun.
+#
+# Aktivieren: in der Oracle-VM den self-hosted Runner registrieren (Schritte aus
+# deploy/setup-vm.sh) und diesen Workflow dann ueber "Run workflow" starten.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 # Der Bot darf nie zwei Deployments gleichzeitig bekommen – hintereinander
