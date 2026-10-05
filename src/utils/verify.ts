@@ -50,6 +50,12 @@ export interface VerifyConfig {
   voice: string;
   /** Rollen, die nach der Ansage vergeben werden. */
   roles: string[];
+  /**
+   * Version der Ansagetexte. Wird hochgezählt, wenn die Standardtexte neu
+   * geschrieben werden – gespeicherte Texte aus älteren Versionen werden dann
+   * durch die neuen ersetzt, statt weiter vorgelesen zu werden.
+   */
+  textsVersion: number;
 }
 
 /** Kanal, in dem Mitglieder warten, bevor sie gezogen werden. */
@@ -80,25 +86,35 @@ export const MIC_CHECK_ROLE_ID = "1547675358948753418";
  */
 export const VERIFIED_ROLE_ID = "1547675350887178240";
 
+/**
+ * Standardtexte für die Ansagen.
+ *
+ * Die Texte sind absichtlich kurz und in ganzen, einfachen Sätzen geschrieben.
+ * Eine Sprachausgabe liest lange verschachtelte Sätze betont flach und
+ * langsam vor - man hört die Satzbaupläne statt eines Gesprächs. Was ein Mensch
+ * im Voice-Chal so sagen würde, liest sich auch gesprochen flüssig.
+ */
+/** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
+const TEXTS_VERSION = 2;
+
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
-  
   message:
-    "Willkommen in der Whitelist, {user}. Schön, dass du den Weg zu uns gefunden hast. " +
-    "Ich habe dich hierher in den Prüf-Kanal geholt. Damit wir dich im Voice-Chat gut " +
-    "verstehen, machen wir gleich einen kurzen Mikrofon-Check.",
+    "Hey {user}, schön dass du uns gefunden hast. " +
+    "Ich hol dich kurz hier rüber. " +
+    "Wir testen nur kurz dein Mikrofon.",
   speakNowMessage:
-    "So, {user}, du kannst jetzt sprechen. Sag einfach ein paar Sätze für mich, ich höre zu.",
+    "So, {user}, jetzt bist du dran. Sag einfach ein paar Sätze für mich.",
   micFailedMessage:
-    "Prüfe bitte deine Discord-Sende-Einstellung und deine Eingabelautstärke, stelle " +
-    "dein Mikrofon ein und komm anschließend noch einmal in den Warteraum.",
+    "Schau mal kurz in dein Discord, ob das Mikrofon wirklich an ist. " +
+    "Dann komm einfach nochmal zu mir.",
   micPassedMessage:
-    "Perfekt, {user}, dein Mikrofon funktioniert einwandfrei. Ich schließe die " +
-    "Prüfung ab und schalte die Kanäle für dich frei.",
+    "Perfekt, {user}, dein Mikrofon passt. Ich schalte dich jetzt frei.",
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
+  textsVersion: TEXTS_VERSION,
 };
 
 export const verifyStore = createStorage<VerifyConfig>(loadConfig(), "verify");
@@ -217,34 +233,46 @@ function normalizeConfig(stored: Partial<VerifyConfig> | undefined): VerifyConfi
       : legacy?.lang
         ? LEGACY_LANG_TO_VOICE[legacy.lang]
         : undefined;
+
+  // Gespeicherte Texte aus einer älteren Fassung würden sonst weiter vorgelesen.
+  // Sie werden durch die aktuellen Standardtexte ersetzt – Voice, Kanäle und
+  // Rollen bleiben unangetastet.
+  const keepStoredTexts = stored?.textsVersion === TEXTS_VERSION;
+
   return {
     enabled: stored?.enabled ?? DEFAULT_CONFIG.enabled,
     channelId: stored?.channelId || VERIFY_CHANNEL_ID,
     waitingChannelId: stored?.waitingChannelId || WAITING_CHANNEL_ID,
 
-    message: storedText(stored?.message, DEFAULT_CONFIG.message),
-    micFailedMessage: storedText(
-      stored?.micFailedMessage,
-      DEFAULT_CONFIG.micFailedMessage,
-    ),
-    speakNowMessage: storedText(
-      stored?.speakNowMessage,
-      DEFAULT_CONFIG.speakNowMessage,
-    ),
-    micPassedMessage: storedText(
-      stored?.micPassedMessage,
-      DEFAULT_CONFIG.micPassedMessage,
-    ),
+    message: keepStoredTexts
+      ? storedText(stored?.message, DEFAULT_CONFIG.message)
+      : DEFAULT_CONFIG.message,
+    micFailedMessage: keepStoredTexts
+      ? storedText(stored?.micFailedMessage, DEFAULT_CONFIG.micFailedMessage)
+      : DEFAULT_CONFIG.micFailedMessage,
+    speakNowMessage: keepStoredTexts
+      ? storedText(stored?.speakNowMessage, DEFAULT_CONFIG.speakNowMessage)
+      : DEFAULT_CONFIG.speakNowMessage,
+    micPassedMessage: keepStoredTexts
+      ? storedText(stored?.micPassedMessage, DEFAULT_CONFIG.micPassedMessage)
+      : DEFAULT_CONFIG.micPassedMessage,
     voice: storedVoice || DEFAULT_CONFIG.voice,
     roles: Array.isArray(stored?.roles) ? stored.roles : [],
+    textsVersion: TEXTS_VERSION,
   };
 }
 
 export async function getVerifyConfig(guildId: string): Promise<VerifyConfig> {
   const cached = configCache.get(guildId);
   if (cached) return cached;
-  const cfg = normalizeConfig(await verifyStore.read(guildId));
+  const stored = await verifyStore.read(guildId);
+  const cfg = normalizeConfig(stored);
   configCache.set(guildId, cfg);
+  // Die neuen Texte einmalig festschreiben, damit die Ersetzung nicht bei
+  // jedem Start erneut durchläuft.
+  if (stored?.textsVersion !== TEXTS_VERSION) {
+    await verifyStore.write(guildId, cfg).catch(() => undefined);
+  }
   return cfg;
 }
 
@@ -287,19 +315,20 @@ const ttsCache = new Map<string, Buffer>();
 
 /**
  * Sprechtempo und Betonung fuer die Ansagen. Beides ist ueber die Umgebung
- * anpassbar, ohne Code zu aendern: TTS_RATE=-20% macht langsamer,
- * TTS_RATE=+20% schneller, TTS_PITCH=+5Hz hoeher.
+ * anpassbar, ohne Code zu aendern: TTS_RATE=+20% macht schneller,
+ * TTS_RATE=-20% langsamer, TTS_PITCH=+5Hz hoeher.
  *
- * -18% war zu deutlich - das klang inzwischen wie ein Zeitraffer. -5% laesst
- * Satzbetontung und Pausen hoeren, ohne zu schleppen.
+ * Tempo und Tonhöhe bleiben unveraendert. Jede Verschiebung davon klingt
+ * auffällig nach Roboter - die Ansagen waren dadurch langsam und künstlich.
+ * Wer es doch langsamer braucht, setzt TTS_RATE=-10%.
  */
-const TTS_RATE = process.env["TTS_RATE"]?.trim() || "-5%";
-const TTS_PITCH = process.env["TTS_PITCH"]?.trim() || "+2Hz";
+const TTS_RATE = process.env["TTS_RATE"]?.trim() || "+0%";
+const TTS_PITCH = process.env["TTS_PITCH"]?.trim() || "+0Hz";
 
 export async function fetchTtsAudio(text: string, voice: string): Promise<Buffer> {
-  // Das Tempo ist Teil des Cache-Schlüssels: wird TTS_RATE geändert, darf der
-  // alte, schnellere Ton nicht mehr aus dem Cache kommen.
-  const cacheKey = `${voice}::${TTS_RATE}::${text}`;
+  // Tempo, Tonhöhe und Text gehören in den Cache-Schlüssel: sonst käme nach
+  // einer Änderung der alte Ton aus dem Cache.
+  const cacheKey = `${voice}::${TTS_RATE}::${TTS_PITCH}::${text}`;
   const cached = ttsCache.get(cacheKey);
   if (cached) return cached;
 
@@ -319,9 +348,9 @@ async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
   try {
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     const { audioStream } = tts.toStream(text, {
-      // Ansagen werden im Voice-Kanal gehört, nicht am Schreibtisch. Das
-      // Standardtempo ist im Kanal etwas zu hastig, -5% gibt der Betonung Raum,
-      // ohne träge zu wirken. Ueberschreiben mit TTS_RATE, z. B. TTS_RATE=0%.
+      // Normal, unverschoben. Ansagen im Kanal klingen nur dann wie ein
+      // Gespräch, wenn sie nicht absichtlich gebremst oder in der Tonhöhe
+      // verfremdet werden. Ueberschreiben mit TTS_RATE / TTS_PITCH.
       rate: TTS_RATE,
       pitch: TTS_PITCH,
     });

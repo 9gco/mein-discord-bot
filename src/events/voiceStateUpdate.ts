@@ -83,8 +83,8 @@ const MIC_PASS_GRACE_MS = 3_000;
  * empfindet es nicht als Rauswurf – die Channels sind ab da frei.
  */
 const MIC_PASS_DISCONNECT_MESSAGE =
-  "Alles klar, du bist durch. Ich trenne dich jetzt aus diesem Kanal, " +
-  "du kannst ganz in Ruhe in die Channels gehen.";
+  "Super, du bist durch. Ich schick dich jetzt raus. " +
+  "Schau dann einfach in die Channels.";
 
 /**
  * Wie viele Prüfversuche ein Mitglied im Prüf-Kanal bekommt, bevor es in die
@@ -215,34 +215,29 @@ async function grantVerifyRoles(
 /**
  * Übersetzt ein Messergebnis in einen Satz, den der Bot vorlesen kann. Der Text
  * nennt den konkreten Grund, damit das Mitglied weiß, was es ändern muss.
+ *
+ * Kurze Sätze, ein Gedanke pro Satz: Längere Erklärungen liest die
+ * Sprachausgabe flach und langsam vor.
  */
 function describeMicProblem(result: MicCheckResult): string {
   switch (result.reason) {
     case "no_speech":
-      return "Ich habe aus deinem Mikrofon überhaupt keinen Ton bekommen.";
-    case "too_short":
-      return (
-        `Ich habe nur ${Math.round(result.speechMs / 100) / 10} Sekunden ` +
-        "Sprache bekommen – das ist zu wenig zum Beurteilen."
-      );
+      return "Ich habe bei dir überhaupt nichts gehört.";
+    case "too_short": {
+      // "1.2" liest die Stimme als "eins komma zwei"; mit Komma klingt es
+      // deutsch. Die Nachkommastelle bleibt, sonst rundet der Text auf.
+      const seconds = (Math.round(result.speechMs / 100) / 10).toFixed(1).replace(".", ",");
+      return `Ich habe nur ${seconds} Sekunden gehört. Erzähl mir nochmal etwas mehr.`;
+    }
     case "clipping":
-      return (
-        "Dein Mikrofon ist übersteuert, es knackt und verzerrt. " +
-        "Drehe die Eingabelautstärke oder den Mikrofon-Gain etwas runder."
-      );
+      return "Dein Mikrofon ist übersteuert. Dreh die Eingabelautstärke etwas runter.";
     case "noisy":
-      return (
-        "Bei dir ist sehr viel Hintergrundrauschen, ich kann dich kaum " +
-        "von anderen Geräuschen unterscheiden."
-      );
+      return "Bei dir ist mega viel los im Hintergrund. Am besten gehst du mal in einen ruhigeren Raum.";
     case "too_quiet":
-      return (
-        "Dein Mikrofon ist zu leise – ich habe zwar gehört, dass du da bist, " +
-        "aber nicht, was du sagst."
-      );
+      return "Dein Mikrofon ist mir fast zu leise. Dreh es mal etwas lauter.";
     case "error":
     default:
-      return "Bei der Prüfung ist ein technischer Fehler aufgetreten.";
+      return "Bei mir ist gerade etwas kaputtgegangen. Versuch es einfach nochmal.";
   }
 }
 
@@ -361,8 +356,7 @@ async function runVerify(
         await speak(
           guild,
           verifyChannelId,
-          `Kein Problem, wir versuchen es nochmal. Diesmal ist dein ` +
-            `Versuch Nummer ${attempt} von ${MIC_MAX_ATTEMPTS}.`,
+          `Kein Stress, machen wir nochmal. Versuch Nummer ${attempt}.`,
           cfg.voice,
           member.id,
           signal,
