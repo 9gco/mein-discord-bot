@@ -16,6 +16,8 @@ import {
   enqueueWaiting,
   fetchTtsAudio,
   getVerifyConfig,
+  isMemberInChannel,
+  isWaiting,
   logVerifyPermissions,
   peekFirstEligible,
   playBuffer,
@@ -26,6 +28,7 @@ import {
   spokenName,
   stripQueueNickname,
   throwIfAborted,
+  waitForMemberInChannel,
   waitForSilence,
   VerifyAbortedError,
   WAITING_CHANNEL_ID,
@@ -62,6 +65,13 @@ function abortRun(guildId: string, userId: string): boolean {
 const MIC_START_DELAY_MS = 1_200;
 
 /**
+ * So lange wird nach dem Move gewartet, bis das Mitglied wirklich im
+ * Prüf-Kanal steht und Audio empfängt. Danach wird ohne Ansage aufgegeben –
+ * der Bot redet nicht in einen Kanal, in dem niemand zuhört.
+ */
+const MEMBER_JOIN_TIMEOUT_MS = 30_000;
+
+/**
  * Wie viele Prüfversuche ein Mitglied im Prüf-Kanal bekommt, bevor es in die
  * Wartezeit muss. Die meisten Fehler sind Einstellungsprobleme, die sich
  * direkt korrigieren lassen – deshalb zwei zusätzliche Versuche.
@@ -75,15 +85,26 @@ const MIC_MAX_ATTEMPTS = 3;
  */
 const MIC_COOLDOWN_MS = 60_000;
 
-/** Spielt eine Ansage, nachdem im Kanal Ruhe herrscht. */
+/**
+ * Spielt eine Ansage – aber nur, wenn das Mitglied wirklich im Prüf-Kanal ist
+ * und den Stream auch empfangen kann. Andernfalls bricht der Durchlauf ab,
+ * statt in einen leeren Kanal zu reden: der Bot redet erst, wenn der
+ * Wartende wirklich zuhört.
+ */
 async function speak(
   guild: Guild,
   channelId: string,
   text: string,
   voice: string,
+  memberId: string,
   signal?: AbortSignal,
 ): Promise<void> {
   throwIfAborted(signal);
+  if (!isMemberInChannel(guild, memberId, channelId)) {
+    throw new VerifyAbortedError(
+      "Mitglied ist nicht (mehr) im Prüf-Kanal – Ansage entfällt.",
+    );
+  }
   const connection = await connectToVerifyChannel(guild, channelId);
   if (!connection) {
     logger.error("Keine Voice-Verbindung – Ansage entfällt.", {
@@ -95,6 +116,12 @@ async function speak(
   // Erst warten, bis niemand spricht, sonst redet der Bot mitten im Satz rein.
   await waitForSilence(connection, 700, 60_000, signal);
   throwIfAborted(signal);
+  // Nach der Stillepause kann das Mitglied den Kanal verlassen haben.
+  if (!isMemberInChannel(guild, memberId, channelId)) {
+    throw new VerifyAbortedError(
+      "Mitglied hat den Prüf-Kanal während der Wartezeit verlassen.",
+    );
+  }
   const buffer = await fetchTtsAudio(text, voice);
   throwIfAborted(signal);
   await playBuffer(connection, buffer, signal);
@@ -207,6 +234,29 @@ async function runVerify(
   //    wird auch nicht vorgelesen.
   await stripQueueNickname(guild, member.id);
 
+  // 4) Warten, bis das Mitglied wirklich angekommen ist. Nach dem Move hat
+  //    Discord nur bestätigt, dass der Umzug durch ist – der Client des
+  //    Mitglieds baut die Voice-Verbindung erst noch auf. Ohne diese Wartezeit
+  //    startet die Ansage, während der Wartende noch verbindet, und die ersten
+  //    Sekunden gehen verloren.
+  const arrived = await waitForMemberInChannel(
+    guild,
+    member.id,
+    verifyChannelId,
+    MEMBER_JOIN_TIMEOUT_MS,
+    signal,
+  );
+  if (!arrived) {
+    throwIfAborted(signal);
+    logger.info("Mitglied nicht angekommen – Durchlauf ohne Ansage beendet.", {
+      guildId: guild.id,
+      userId: member.id,
+      channelId: verifyChannelId,
+    });
+    await releaseQueueSlot(guild, member);
+    return;
+  }
+
   const connection = await connectToVerifyChannel(guild, verifyChannelId);
   if (!connection) {
     logger.error("Konnte dem Prüf-Kanal nicht beitreten.", {
@@ -220,16 +270,17 @@ async function runVerify(
   const name = spokenName(member.displayName);
 
   try {
-    // 4) Begrüßung mit der Check-Aufforderung.
+    // 5) Begrüßung mit der Check-Aufforderung.
     await speak(
       guild,
       verifyChannelId,
       cfg.message.replace(/\{user\}/g, name),
       cfg.voice,
+      member.id,
       signal,
     );
 
-    // 5) Mehrere Versuche direkt nacheinander. Die meisten Fehler sind
+    // 6) Mehrere Versuche direkt nacheinander. Die meisten Fehler sind
     //    Einstellungsprobleme, die sich sofort korrigieren lassen.
     let passed = false;
     let lastResult: MicCheckResult | undefined;
@@ -242,6 +293,7 @@ async function runVerify(
           `Kein Problem, wir versuchen es nochmal. Diesmal ist dein ` +
             `Versuch Nummer ${attempt} von ${MIC_MAX_ATTEMPTS}.`,
           cfg.voice,
+          member.id,
           signal,
         );
       }
@@ -253,6 +305,7 @@ async function runVerify(
         verifyChannelId,
         cfg.speakNowMessage.replace(/\{user\}/g, name),
         cfg.voice,
+        member.id,
         signal,
       );
       throwIfAborted(signal);
@@ -295,17 +348,19 @@ async function runVerify(
           ? `${problem} ${cfg.micFailedMessage.replace(/\{user\}/g, name)}`
           : problem,
         cfg.voice,
+        member.id,
         signal,
       );
     }
 
     if (passed) {
-      // 6a) Erfolg: Ergebnis melden, dauerhafte Rollen geben, Wartezeit lösen.
+      // 7a) Erfolg: Ergebnis melden, dauerhafte Rollen geben, Wartezeit lösen.
       await speak(
         guild,
         verifyChannelId,
         cfg.micPassedMessage.replace(/\{user\}/g, name),
         cfg.voice,
+        member.id,
         signal,
       );
 
@@ -355,15 +410,17 @@ async function runVerify(
         `Komm bitte in ${seconds} Sekunden noch einmal in den Warteraum, ` +
           `dann versuchen wir es erneut.`,
         cfg.voice,
+        member.id,
         signal,
       );
     }
   } catch (err) {
     // Vorzeitiges Verlassen ist kein Fehler, sondern der Normalfall.
     if (err instanceof VerifyAbortedError) {
-      logger.info("Prüfung abgebrochen – Mitglied hat den Kanal verlassen.", {
+      logger.info("Prüfung abgebrochen – Mitglied ist nicht (mehr) im Kanal.", {
         guildId: guild.id,
         userId: member.id,
+        reason: err.message,
       });
     } else {
       logger.error("Prüf-Durchlauf fehlgeschlagen.", {
@@ -380,8 +437,10 @@ async function runVerify(
     dequeueWaiting(guild.id, member.id);
     // Die Nummern der Wartenden rücken nach.
     await renumberWaiting(guild);
-    // 8) Aus dem Call entfernen.
-    if (member.voice.channelId) {
+    // 8) Aus dem Call entfernen – aber nur, wenn das Mitglied auch wirklich
+    //    noch im Prüf-Kanal ist. Wer inzwischen woanders unterwegs ist, wird
+    //    nicht zusätzlich aus seinem neuen Kanal gerissen.
+    if (isMemberInChannel(guild, member.id, verifyChannelId)) {
       await member.voice.setChannel(null).catch(() => undefined);
     }
   }
@@ -418,7 +477,37 @@ function startNextIfIdle(guild: Guild, cfg: VerifyConfig): void {
 
   void runExclusive(guild.id, async () => {
     try {
-      await runVerify(guild, member, cfg, controller.signal);
+      // `runExclusive` stellt Durchläufe hintereinander, es kann also Sekunden
+      // dauern, bis dieser Start drankommt. In der Zeit kann das Mitglied den
+      // Warteraum verlassen haben – dann wurde sein Eintrag schon entfernt.
+      // Ohne diese Prüfung würde der Bot in den Prüf-Kanal ziehen und dort
+      // ansprechen, obwohl niemand mehr wartet.
+      const current = guild.members.cache.get(next.userId);
+      const stillQueued = isWaiting(guild.id, next.userId);
+      const waitingId = cfg.waitingChannelId || WAITING_CHANNEL_ID;
+      const stillInChannel =
+        current !== undefined &&
+        (current.voice.channelId === waitingId ||
+          current.voice.channelId === cfg.channelId);
+
+      if (!current || !stillQueued || !stillInChannel) {
+        logger.info("Start übersprungen – Mitglied ist nicht mehr am Start.", {
+          guildId: guild.id,
+          userId: next.userId,
+          stillQueued,
+          stillInChannel,
+          channelId: current?.voice.channelId,
+        });
+        if (stillQueued) {
+          // Eintrag noch vorhanden, aber das Mitglied ist weg: aufräumen.
+          await stripQueueNickname(guild, next.userId);
+          dequeueWaiting(guild.id, next.userId);
+          await renumberWaiting(guild);
+        }
+        return;
+      }
+
+      await runVerify(guild, current, cfg, controller.signal);
     } finally {
       busy.delete(key);
       running.delete(key);

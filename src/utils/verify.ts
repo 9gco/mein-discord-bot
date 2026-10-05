@@ -56,6 +56,13 @@ export interface VerifyConfig {
 export const WAITING_CHANNEL_ID = "1547675527844864020";
 /** Kanal, in dem Ansage und Mikrofon-Check laufen. */
 export const VERIFY_CHANNEL_ID = "1547676303149244508";
+
+/**
+ * Kurze Schonzeit, nachdem das Mitglied im Prüf-Kanal angekommen ist. Ohne sie
+ * fehlen vom Bot-Audio die ersten Pakete – der Start der Ansage ginge
+ * verloren.
+ */
+const MEMBER_SETTLE_MS = 700;
 /**
  * Rolle, die dauerhaft an geprüfte Mitglieder vergeben wird. Sie bleibt
  * dauerhaft und wird vom Bot nicht angefasst.
@@ -393,6 +400,73 @@ export async function connectToVerifyChannel(
 }
 
 /**
+ * Wartet, bis ein Mitglied wirklich im Voice-Kanal angekommen ist und den
+ * Audio-Stream des Bots auch empfangen kann.
+ *
+ * Nach `setChannel` hat Discord den Move nur bestätigt – der Client des
+ * Mitglieds muss seine Voice-Verbindung erst noch aufbauen. Wer die Ansage
+ * sofort loslässt, redet der Bot in einen Kanal, in dem noch niemand zuhört.
+ * `sessionId` ist erst gesetzt, wenn der Handshake des Clients abgeschlossen
+ * ist, also ab dem Moment, an dem Audio tatsächlich ankommt.
+ *
+ * Gibt `false` zurück, wenn das Mitglied in der Zeit nicht auftaucht – dann
+ * darf der Bot besser schweigen als in einen leeren Kanal reden.
+ */
+export async function waitForMemberInChannel(
+  guild: Guild,
+  memberId: string,
+  channelId: string,
+  timeoutMs = 30_000,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (signal?.aborted) return false;
+    if (!isMemberInChannel(guild, memberId, channelId)) {
+      // Mitglied hat den Server verlassen – nicht weiter warten.
+      if (!guild.members.cache.has(memberId)) return false;
+      await abortableDelay(250, signal).catch(() => undefined);
+      continue;
+    }
+
+    // Kanal stimmt, aber der Client hat den Voice-Handshake noch nicht
+    // abgeschlossen: `sessionId` fehlt, solange er "verbindet".
+    const state = guild.voiceStates.cache.get(memberId);
+    if (state?.sessionId) {
+      // Einen Moment Luft, damit die ersten Audio-Pakete eintreffen.
+      await abortableDelay(MEMBER_SETTLE_MS, signal).catch(() => undefined);
+      return !signal?.aborted;
+    }
+
+    await abortableDelay(250, signal).catch(() => undefined);
+  }
+
+  logger.warn("Mitglied war nicht rechtzeitig im Prüf-Kanal – Ansage entfällt.", {
+    guildId: guild.id,
+    userId: memberId,
+    channelId,
+    timeoutMs,
+  });
+  return false;
+}
+
+/**
+ * Stimmt das Mitglied gerade mit dem Voice-Kanal überein? Der Gateway-State
+ * ist die verlässlichere Quelle als `member.voice`, weil er auch nach einem
+ * Move sofort den neuen Kanal zeigt.
+ */
+export function isMemberInChannel(
+  guild: Guild,
+  memberId: string,
+  channelId: string,
+): boolean {
+  const state = guild.voiceStates.cache.get(memberId);
+  if (state) return state.channelId === channelId;
+  return guild.members.cache.get(memberId)?.voice.channelId === channelId;
+}
+
+/**
  * Liest die aktuellen Kanalrechte eines Mitglieds im Prüf-Kanal und
  * protokolliert sie. Der Bot ändert an den Rechten nichts mehr – die
  * Kanal-Einstellungen werden komplett von Hand in Discord gemacht.
@@ -542,8 +616,32 @@ const MIC_CLIP_PEAK = 0.97;
 const MIC_MIN_SNR = 4;
 /** Wie viele Stille-Frames wir mindestens brauchen, um den Rauschboden zu schätzen. */
 const MIC_MIN_NOISE_FRAMES = 5;
-/** Wie lange auf Sprache gewartet wird, bevor der Check als "nichts gehört" endet. */
-const MIC_MAX_WAIT_MS = 45_000;
+/**
+ * Wie lange auf den ersten Ton gewartet wird, bevor der Check als "nichts
+ * gehört" endet. Großzügig, weil der erste Ton erst nach Ansage und
+ * Verbindungsaufbau kommt – wer hier knapp scheitert, wird sofort rausgeworfen.
+ */
+const MIC_MAX_WAIT_MS = 90_000;
+/**
+ * Wie lange der Check nach dem ersten Ton noch laufen darf. Wer erst spät
+ * anfängt zu reden, bekommt dadurch eine faire Länge, ohne die Schlange
+ * unbegrenzt zu blockieren.
+ */
+const MIC_AFTER_FIRST_TONE_MS = 25_000;
+/**
+ * Wie lange vor dem Ende des Zeitfensters noch weiter zugehört wird, obwohl
+ * noch zu wenig Sprache da ist. Solange mehr Zeit bleibt, wird nicht
+ * ausgewertet – eine kurze Pause mitten im Satz darf kein Fehlschlag sein.
+ */
+const MIC_SHORT_GIVEUP_MS = 15_000;
+/** Stille, nach der ausgewertet wird, sobald genug Sprache aufgezeichnet wurde. */
+const MIC_EVAL_SILENCE_MS = 1_500;
+/**
+ * EndBehavior des Abonnements: nach so viel Stille gilt der Stream als beendet.
+ * Das ist bewusst kurz – eine Denkpause soll den Aufnahme-Stream nicht
+ * beenden, das Neuholen übernimmt `attachSubscription`.
+ */
+const MIC_STREAM_END_SILENCE_MS = 400;
 /** Opus-Abtastrate und Framegröße für Discord-Voice (20 ms). */
 const OPUS_RATE = 48_000;
 const OPUS_FRAME_MS = 20;
@@ -711,14 +809,17 @@ export function waitForSilence(
  * Nimmt die Stimme eines Mitglieds über den Voice-Receiver auf und bewertet,
  * ob das Mikrofon brauchbar ist. Geprüft wird in dieser Reihenfolge:
  *
- * 1. `no_speech`  – in `MIC_MAX_WAIT_MS` kam kein verwertbarer Ton
+ * 1. `no_speech`  – bis zum Ende des Zeitfensters kam kein verwertbarer Ton
  * 2. `too_short`  – zu wenig Sprechzeit zum Beurteilen
  * 3. `clipping`   – Signal übersteuert (Gain zu hoch)
  * 4. `too_quiet`  – Sprechpegel unter `MIC_MIN_LEVEL`
  * 5. `noisy`      – Sprache hebt sich kaum vom Rauschboden ab
  *
- * Der Check endet nach einer kurzen Stille nach der Sprachphase. Wer gar
- * nichts aufnimmt, wartet bis `MIC_MAX_WAIT_MS`.
+ * Der Check endet nach einer kurzen Stille nach der Sprachphase. Wichtig für
+ * die Fairness: Eine kurze Pause mitten im Satz beendet den Check *nicht*.
+ * Discord liefert Streams packetweise; eine Denkpause von 400 ms wäre sonst
+ * schon ein Fehlschlag. Stattdessen wird neu abonniert und weiter zugehört,
+ * bis entweder genug Sprache da ist oder das Zeitfenster abläuft.
  */
 export function runMicCheck(
   connection: VoiceConnection,
@@ -736,7 +837,7 @@ export function runMicCheck(
       decoder = undefined;
     }
 
-let settled = false;
+    let settled = false;
     /** Frames, die als Sprache gewertet wurden – Pegelsumme und Spitzenwert. */
     let voiceFrames = 0;
     let levelSum = 0;
@@ -751,8 +852,16 @@ let settled = false;
     /** Discord meldet zuverlässig, wann das Mitglied wirklich sendet. */
     let isSpeaking = false;
     let sawSpeakingEvent = false;
+    /** Zeitpunkt des ersten verwertbaren Tons – ab dem läuft die kürzere Frist. */
+    let firstToneAt: number | null = null;
+    /** Start des Checks – Grundlage für das Zeitfenster ohne ersten Ton. */
+    const startedAt = Date.now();
     let silentTimer: NodeJS.Timeout | undefined;
     let hardTimeout: NodeJS.Timeout | undefined;
+    /** Aktueller Stream – wird nach jeder Pause neu abonniert. */
+    let subscription: ReturnType<VoiceConnection["receiver"]["subscribe"]> | undefined;
+    /** Hat Discord den aktuellen Stream nach Stille beendet? */
+    let streamEnded = false;
     /** Zusätzliche Abmeldungen, die beim Beenden des Checks ausgeführt werden. */
     const detachers: Array<() => void> = [];
 
@@ -806,7 +915,7 @@ let settled = false;
         }
       }
       try {
-        subscription.destroy();
+        subscription?.destroy();
       } catch {
         // Stream war schon beendet.
       }
@@ -847,42 +956,147 @@ let settled = false;
       }
     };
 
-    const restartSilenceTimer = (): void => {
+    /** Setzt den Timer, nach dessen Ablauf über eine Stillepause entschieden wird. */
+    const armEvaluation = (delayMs: number): void => {
+      if (settled) return;
       if (silentTimer) clearTimeout(silentTimer);
-      silentTimer = setTimeout(evaluate, 1500);
+      silentTimer = setTimeout(onSilenceExpired, delayMs);
     };
 
-    const subscription = connection.receiver.subscribe(memberId, {
-      end: {
-        behavior: EndBehaviorType.AfterSilence,
-        duration: 400,
-      },
-    });
+    /**
+     * Nach einer Stillepause. Nur auswerten, wenn wirklich genug Sprache
+     * aufgezeichnet wurde oder das Zeitfenster ohnehin gleich abläuft –
+     * sonst wird der Stream neu abonniert und weiter zugehört.
+     */
+    function onSilenceExpired(): void {
+      if (settled) return;
+      if (speechMs() >= MIC_MIN_SPEECH_MS) {
+        evaluate();
+        return;
+      }
+      // Zu wenig Sprache für eine Bewertung. Nur auswerten, wenn die Zeit
+      // ohnehin abläuft, sonst weiterhören – sonst wäre eine kurze Pause
+      // mitten im Satz ein Fehlschlag.
+      if (
+        firstToneAt !== null &&
+        Date.now() - firstToneAt >= MIC_SHORT_GIVEUP_MS
+      ) {
+        evaluate();
+        return;
+      }
+      if (Date.now() - startedAt >= MIC_MAX_WAIT_MS - MIC_SHORT_GIVEUP_MS) {
+        evaluate();
+        return;
+      }
+      // Nur neu abonnieren, wenn Discord den Stream wirklich beendet hat.
+      // Ein noch laufender Stream wird nicht angefasst – sonst ginge genau
+      // der Anfang des nächsten Satzes verloren.
+      if (streamEnded) attachSubscription();
+    }
 
-    hardTimeout = setTimeout(evaluate, MIC_MAX_WAIT_MS);
+    /**
+     * Erster wirklich verwertbarer Ton. Ab hier läuft nur noch das kürzere
+     * Fenster – vorher wird großzügig gewartet, weil der erste Satz nach
+     * Ansage und Verbindungsaufbau kommt.
+     */
+    const noteFirstTone = (): void => {
+      if (firstToneAt !== null) return;
+      firstToneAt = Date.now();
+      if (hardTimeout) clearTimeout(hardTimeout);
+      hardTimeout = setTimeout(
+        () => evaluate(),
+        Math.max(
+          MIC_EVAL_SILENCE_MS,
+          Math.min(
+            MIC_AFTER_FIRST_TONE_MS,
+            MIC_MAX_WAIT_MS - (Date.now() - startedAt),
+          ),
+        ),
+      );
+    };
 
-    // Bricht das Mitglied vorher ab, endet der Check sofort – sonst würde die
-    // ganze Schlange bis zu MIC_MAX_WAIT_MS blockiert bleiben.
-    detachers.push(
-      onAbort(signal, () => {
-        finish({ ok: false, reason: "aborted", speechMs: 0, level: 0, peak: 0, snr: 0 });
-      }),
-    );
+    /**
+     * Abonniert den Stimme-Stream des Mitglieds neu. Discord beendet Streams
+     * nach kurzer Stille automatisch; ohne Neuabonnierung würde der Rest des
+     * Satzes fehlen und der Check zu früh auswerten.
+     */
+    const attachSubscription = (): void => {
+      if (settled) return;
+      try {
+        subscription?.destroy();
+      } catch {
+        // Alter Stream war schon beendet.
+      }
+      streamEnded = false;
+      subscription = connection.receiver.subscribe(memberId, {
+        end: {
+          behavior: EndBehaviorType.AfterSilence,
+          duration: MIC_STREAM_END_SILENCE_MS,
+        },
+      });
+
+      subscription.on("data", (packet: Buffer) => {
+        if (settled || packet.length === 0) return;
+        const { rms, peak } = measureFrame(decoder, packet);
+        frameLevels.push(rms);
+        framePeaks.push(peak);
+
+        if (isSpeaking && rms >= MIC_SPEECH_FLOOR) {
+          voiceFrames++;
+          levelSum += rms;
+          if (peak > peakMax) peakMax = peak;
+          // Erster verwertbarer Ton: ab jetzt läuft die kürzere Frist.
+          noteFirstTone();
+        } else {
+          noiseFrames++;
+          noiseSum += rms;
+        }
+
+        // Solange gesendet wird, läuft die Zeit weiter.
+        if (isSpeaking) armEvaluation(MIC_EVAL_SILENCE_MS);
+      });
+
+      subscription.once("end", () => {
+        if (settled) return;
+        streamEnded = true;
+        // Stream-Ende heißt nur, dass kurz niemand gesendet hat. Die Pause
+        // abwarten und dann entscheiden, nicht sofort auswerten.
+        armEvaluation(MIC_EVAL_SILENCE_MS);
+      });
+
+      subscription.once("error", (err: Error) => {
+        logger.error("Fehler beim Mikrofon-Check.", {
+          userId: memberId,
+          error: err,
+        });
+        finish({ ok: false, reason: "error", speechMs: 0, level: 0, peak: 0, snr: 0 });
+      });
+    };
+
+    attachSubscription();
+
+    // Zeitfenster: erst auf den ersten Ton warten, danach nur noch
+    // `MIC_AFTER_FIRST_TONE_MS`. Wer gar nicht erst anfängt, wird nach
+    // `MIC_MAX_WAIT_MS` als "nichts gehört" gemeldet.
+    hardTimeout = setTimeout(() => evaluate(), MIC_MAX_WAIT_MS);
 
     // Speaking-Events sind die verlässlichste Trennung zwischen Sprache und
     // Rauschen – der Pegel allein reicht bei laufendem Hintergrund nicht.
     const speaking = connection.receiver.speaking;
     const onSpeakStart = (userId: string): void => {
-      if (userId !== memberId) return;
+      if (userId !== memberId || settled) return;
       isSpeaking = true;
       sawSpeakingEvent = true;
-      // Erstes Hören beendet das Warten auf eine Maximaldauer.
-      if (hardTimeout) clearTimeout(hardTimeout);
+      // Das Zeitfenster wird hier bewusst noch nicht verkürzt: Discord meldet
+      // auch kurze Störgeräusche als "spricht". Erst ein wirklich verwertbarer
+      // Ton (`noteFirstTone`) zählt als Anfang.
     };
     const onSpeakEnd = (userId: string): void => {
       if (userId !== memberId) return;
       isSpeaking = false;
-      restartSilenceTimer();
+      // Kurze Stille abwarten – eine Pause mitten im Satz ist kein Fehlschlag,
+      // `onSilenceExpired` entscheidet dann, ob weiter zugehört wird.
+      armEvaluation(MIC_EVAL_SILENCE_MS);
     };
     speaking.on("start", onSpeakStart);
     speaking.on("end", onSpeakEnd);
@@ -891,37 +1105,13 @@ let settled = false;
       speaking.off("end", onSpeakEnd);
     });
 
-    subscription.on("data", (packet: Buffer) => {
-      if (settled || packet.length === 0) return;
-      const { rms, peak } = measureFrame(decoder, packet);
-      frameLevels.push(rms);
-      framePeaks.push(peak);
-
-      if (isSpeaking && rms >= MIC_SPEECH_FLOOR) {
-        voiceFrames++;
-        levelSum += rms;
-        if (peak > peakMax) peakMax = peak;
-      } else {
-        noiseFrames++;
-        noiseSum += rms;
-      }
-
-      // Solange gesendet wird, läuft die Zeit weiter.
-      if (isSpeaking) restartSilenceTimer();
-    });
-
-    subscription.once("end", () => {
-      // Kurze Stille am Ende noch abwarten, dann auswerten.
-      restartSilenceTimer();
-    });
-
-    subscription.once("error", (err: Error) => {
-      logger.error("Fehler beim Mikrofon-Check.", {
-        userId: memberId,
-        error: err,
-      });
-      finish({ ok: false, reason: "error", speechMs: 0, level: 0, peak: 0, snr: 0 });
-    });
+    // Bricht das Mitglied vorher ab, endet der Check sofort – sonst würde die
+    // ganze Schlange bis zum Ende des Zeitfensters blockiert bleiben.
+    detachers.push(
+      onAbort(signal, () => {
+        finish({ ok: false, reason: "aborted", speechMs: 0, level: 0, peak: 0, snr: 0 });
+      }),
+    );
   });
 }
 
@@ -980,6 +1170,15 @@ export function dequeueWaiting(guildId: string, userId: string): boolean {
   list.splice(position, 1);
   if (list.length === 0) waitingOrder.delete(guildId);
   return true;
+}
+
+/**
+ * Steht das Mitglied noch in der Warteschlange? Zwischen dem Einreihen und
+ * dem tatsächlichen Start liegen Sekunden (vorheriger Durchlauf, Schlange).
+ * Wer in dieser Zeit geht, darf nicht mehr angesprochen werden.
+ */
+export function isWaiting(guildId: string, userId: string): boolean {
+  return waitingOrder.get(guildId)?.includes(userId) ?? false;
 }
 
 /** Nächster Wartender eines Servers, ohne ihn aus der Liste zu nehmen. */

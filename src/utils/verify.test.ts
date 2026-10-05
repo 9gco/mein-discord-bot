@@ -101,8 +101,47 @@ describe("Wartezeit nach Fehlschlag", () => {
   });
 });
 
-describe("Namensnummern", () => {
-  it("entfernt das '(n) '-Präfix, damit die Zahl nie vorgelesen wird", () => {
+describe("Startberechtigung", () => {
+  // Der Bot darf erst reden, wenn das Mitglied wirklich wartet und wirklich im
+  // Prüf-Kanal steht. Beides wird vor dem Start und vor jeder Ansage geprüft.
+
+  it("erkennt, wer noch in der Schlange steht", () => {
+    verify.enqueueWaiting("7000", "a", null, "Alpha");
+    verify.enqueueWaiting("7000", "b", null, "Bravo");
+    expect(verify.isWaiting("7000", "a")).toBe(true);
+    expect(verify.isWaiting("7000", "nicht-da")).toBe(false);
+    expect(verify.isWaiting("8000", "a")).toBe(false);
+
+    // Wer den Warteraum verlassen hat, ist nicht mehr am Start – sonst würde
+    // der Bot noch in den Prüf-Kanal ziehen und dort ansprechen.
+    verify.dequeueWaiting("7000", "a");
+    expect(verify.isWaiting("7000", "a")).toBe(false);
+  });
+
+  const guildStub = (voiceStates: Record<string, { channelId: string | null; sessionId: string }>) =>
+    ({
+      voiceStates: { cache: new Map(Object.entries(voiceStates)) },
+      members: { cache: new Map() },
+    }) as never;
+
+  it("erkennt ein Mitglied, das im Prüf-Kanal steht", () => {
+    const guild = guildStub({ a: { channelId: "verify", sessionId: "s1" } });
+    expect(verify.isMemberInChannel(guild, "a", "verify")).toBe(true);
+    expect(verify.isMemberInChannel(guild, "a", "waiting")).toBe(false);
+  });
+
+  it("erkennt ein Mitglied, das den Kanal verlassen hat", () => {
+    const guild = guildStub({ a: { channelId: null, sessionId: "" } });
+    expect(verify.isMemberInChannel(guild, "a", "verify")).toBe(false);
+  });
+
+  it("behandelt ein unbekanntes Mitglied als 'nicht da'", () => {
+    const guild = guildStub({});
+    expect(verify.isMemberInChannel(guild, "weg", "verify")).toBe(false);
+  });
+});
+
+describe("Namensnummern", () => {  it("entfernt das '(n) '-Präfix, damit die Zahl nie vorgelesen wird", () => {
     expect(verify.spokenName("(3) Charlie")).toBe("Charlie");
     expect(verify.spokenName("(12) Delta")).toBe("Delta");
   });
