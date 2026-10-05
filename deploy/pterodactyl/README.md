@@ -101,14 +101,40 @@ SFTP hochladen.
 
 ## 2. Container einrichten
 
-| Angabe | Wert |
+Auf **Monkey Network** lässt sich der Startup-Befehl *nicht* ändern. Das Egg
+führt immer genau diese Schritte aus:
+
+```
+if [[ -d .git ]] && [[ AUTO_UPDATE == 1 ]]; then git pull; fi
+if [[ -n $NODE_PACKAGES ]]; then npm install $NODE_PACKAGES; fi
+if [ -f /home/container/package.json ]; then npm install --production; fi
+node /home/container/<Hauptdatei>
+```
+
+Deshalb läuft der Bot über `main.js` im Repository-Root statt über
+`dist/index.js`. `dist/` ist in `.gitignore`, fehlt also nach jedem `git pull`;
+`main.js` baut es bei Bedarf und startet den Bot danach. Als Bash-Skript wäre das
+nicht möglich, weil das Egg die Hauptdatei mit `node` startet.
+
+| Angabe im Panel | Wert |
 | --- | --- |
 | Egg | NodeJS (die Version mit dem neuesten `node` aus `node -v`) |
-| Startup | `bash /home/container/deploy/pterodactyl/start.sh` |
-| Install-Command | leer lassen, `start.sh` holt die Dependencies selbst |
+| Docker-Image | Nodejs 25 |
+| Git-Repository-Adresse | `https://github.com/9gco/mein-discord-bot.git` |
+| Install Branch | `main` |
+| Automatische Aktualisierung | `1` |
+| Hauptdatei | `main.js` |
+| Vom Benutzer hochgeladene Dateien | `0` (Installation nicht überspringen) |
 
-Der erste Start installiert rund 165 MB Dependencies, dauert also ein bis drei
-Minuten, bis im Console Log `Bot startet` erscheint.
+Danach die Installation auslösen, damit das Egg das Repository klont. Ab dem
+zweiten Start ist `dist/` vorhanden und der Build entfällt.
+
+**Wichtig:** Das Egg installiert vorher mit `npm install --production`, also ohne
+Dev-Dependencies. TypeScript fehlt dann. `main.js` installiert es deshalb vor dem
+Build nach.
+
+Kein ZIP und kein SFTP-Upload nötig. Der Release-Weg aus Schritt 1 bleibt als
+Alternative für Hoster, deren Startup-Befehl man ändern kann.
 
 ## 3. Umgebungsvariablen
 
@@ -120,6 +146,7 @@ DISCORD_CLIENT_ID=...
 DISCORD_GUILD_ID=...
 PERSISTENT_DATA_DIR=/home/container/data
 LOG_LEVEL=info
+AUTO_UPDATE=true
 ```
 
 `PERSISTENT_DATA_DIR` zeigt bewusst in den Container. Alles andere dort

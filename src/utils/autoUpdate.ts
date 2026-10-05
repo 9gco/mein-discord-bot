@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -102,6 +103,8 @@ async function run(
     cwd: options.cwd,
     maxBuffer: 32 * 1024 * 1024,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    // Unter Windows heisst npm "npm.cmd", was execFile ohne Shell nicht findet.
+    shell: process.platform === "win32",
   });
   return stdout;
 }
@@ -132,11 +135,17 @@ async function fetchRemoteSha(settings: AutoUpdateSettings): Promise<string | un
 }
 
 /**
- * Baut den neuen Stand in einem Staging-Verzeichnis und tauscht danach `dist/`
- * sowie die Paketdateien. package.json und package-lock.json müssen mitkommen,
- * weil das Startskript an deren Prüfsumme erkennt, ob `node_modules` neu
- * installiert werden muss – ohne sie liefe der neue Code gegen alte
- * Abhängigkeiten.
+ * Baut den neuen Stand in einem Staging-Verzeichnis und tauscht danach `dist/`.
+ *
+ * Steht im Anwendungsverzeichnis ein `.git`, wird der Arbeitsbaum vorher per
+ * `git reset --hard` exakt auf die neue Revision gesetzt, statt die Paketdateien
+ * einzeln zu kopieren. Grund: Das Pterodactyl-NodeJS-Egg zieht bei jedem Start
+ * per `git pull` nach und bricht ab, wenn versionierte Dateien lokal geändert
+ * wurden. Ein sauberer Baum ist deshalb Voraussetzung, nicht Kosmetik.
+ *
+ * Ohne `.git` (etwa beim manuellen Hochladen eines Release-Archivs) werden
+ * package.json und package-lock.json mitkopiert, damit das Startskript an
+ * deren Prüfsumme eine nötige Neuinstallation von node_modules erkennt.
  */
 async function buildAndSwap(settings: AutoUpdateSettings, sha: string): Promise<void> {
   const staging = resolve(tmpdir(), `mdb-update-${sha.slice(0, 8)}`);
@@ -148,6 +157,12 @@ async function buildAndSwap(settings: AutoUpdateSettings, sha: string): Promise<
     await run("npm", ["ci", "--no-audit", "--no-fund"], { cwd: staging });
     await run("npm", ["run", "build"], { cwd: staging });
 
+    const checkout = existsSync(resolve(settings.appDir, ".git"));
+    if (checkout) {
+      await run("git", ["fetch", "origin", settings.branch], { cwd: settings.appDir });
+      await run("git", ["reset", "--hard", sha], { cwd: settings.appDir });
+    }
+
     const dist = resolve(settings.appDir, "dist");
     const backup = `${dist}.previous`;
 
@@ -156,8 +171,10 @@ async function buildAndSwap(settings: AutoUpdateSettings, sha: string): Promise<
 
     try {
       await cp(resolve(staging, "dist"), dist, { recursive: true });
-      for (const name of ["package.json", "package-lock.json"] as const) {
-        await cp(resolve(staging, name), resolve(settings.appDir, name));
+      if (!checkout) {
+        for (const name of ["package.json", "package-lock.json"] as const) {
+          await cp(resolve(staging, name), resolve(settings.appDir, name));
+        }
       }
     } catch (err) {
       // Tausch halbfertig: alten Stand zurückholen, sonst startet der Bot nach

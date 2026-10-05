@@ -2,5 +2,7 @@
 # Shebang-Zeilen ab, deshalb hier LF erzwingen - unabhaengig davon, wie die
 # Einstellungen des jeweiligen Rechners aussehen.
 *.sh text eol=lf
+# main.js ist der Einstiegspunkt im Container und muss dort LF haben
+*.js text eol=lf
 deploy/*.service text eol=lf
 *.yml text eol=lf

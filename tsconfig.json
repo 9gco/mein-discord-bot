@@ -14,9 +14,14 @@
     // "outFile": "./",                       /* Concatenate and emit output to single file. */
     "outDir": "./dist" /* Redirect output structure to the directory. */,
     "rootDir": "./src/" /* Specify the root directory of input files. Use to control the output directory structure with --outDir. */,
-    // "composite": true,                     /* Enable project compilation */
-    // "tsBuildInfoFile": "./",               /* Specify file to store incremental compilation information */
-    "incremental": true,
+// "composite": true,                     /* Enable project compilation */
+    // "tsBuildInfoFile": "./",               /* Specify where to store incremental compilation information */
+    // Incremental ist bewusst aus: die tsbuildinfo landet sonst im
+    // Projektwurzelverzeichnis, waehrend die Ausgabe in dist/ liegt. Wird
+    // dist/ geloescht oder getauscht - etwa durch das Selbst-Update -, denkt
+    // tsc, alles sei schon kompiliert, und erzeugt eine unvollstaendige
+    // Ausgabe. Bei dieser Projektgroesse kostet der Vollbuild Sekunden.
+    "incremental": false,
     "removeComments": true /* Do not emit comments to output. */,
 
     // "isolatedModules": true,               /* Transpile each file as a separate module (similar to 'ts.transpileModule'). */
@@ -42,5 +47,5 @@
     "forceConsistentCasingInFileNames": false /* Disallow inconsistently-cased references to the same file. */
   },
   "include": ["./src/**/*"],
-  "exclude": ["./node_modules/**/*"]
+  "exclude": ["./node_modules/**/*", "./src/**/*.test.ts"]
 }
