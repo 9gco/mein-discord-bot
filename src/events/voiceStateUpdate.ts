@@ -72,6 +72,21 @@ const MIC_START_DELAY_MS = 1_200;
 const MEMBER_JOIN_TIMEOUT_MS = 30_000;
 
 /**
+ * Schonzeit nach erfolgreichem Check, bevor der Bot das Mitglied aus dem Call
+ * holt. Ohne sie wirkt das Trennen wie eine Strafe – die Erfolgsansage ist
+ * gerade erst zu Ende, die Rollen noch nicht sichtbar.
+ */
+const MIC_PASS_GRACE_MS = 3_000;
+
+/**
+ * Ansage direkt vor dem Trennen. Wer weiß, dass er gleich rausgeholt wird,
+ * empfindet es nicht als Rauswurf – die Channels sind ab da frei.
+ */
+const MIC_PASS_DISCONNECT_MESSAGE =
+  "Alles klar, du bist durch. Ich trenne dich jetzt aus diesem Kanal, " +
+  "du kannst ganz in Ruhe in die Channels gehen.";
+
+/**
  * Wie viele Prüfversuche ein Mitglied im Prüf-Kanal bekommt, bevor es in die
  * Wartezeit muss. Die meisten Fehler sind Einstellungsprobleme, die sich
  * direkt korrigieren lassen – deshalb zwei zusätzliche Versuche.
@@ -140,6 +155,61 @@ async function releaseQueueSlot(guild: Guild, member: GuildMember): Promise<void
   await stripQueueNickname(guild, member.id);
   dequeueWaiting(guild.id, member.id);
   await renumberWaiting(guild);
+}
+
+/**
+ * Vergibt die konfigurierten Rollen und prüft danach einmal nach, ob sie
+ * wirklich gesetzt sind. Ein Rollenfehler darf nicht still durchrutschen:
+ * der Bot trennt das Mitglied danach aus dem Call, und ohne Rolle wäre das
+ * Rauswerfen eine Strafe ohne Gegenwert.
+ *
+ * Gibt zurück, ob alle Rollen am Ende wirklich gesetzt sind.
+ */
+async function grantVerifyRoles(
+  guild: Guild,
+  member: GuildMember,
+  roleIds: string[],
+): Promise<boolean> {
+  if (roleIds.length === 0) {
+    logger.warn(
+      "Keine Verify-Rollen konfiguriert – Mitglied bleibt ohne Rolle.",
+      { guildId: guild.id, userId: member.id },
+    );
+    return false;
+  }
+
+  const missing = roleIds.filter((roleId) => !member.roles.cache.has(roleId));
+  if (missing.length === 0) return true;
+
+  try {
+    await member.roles.add(missing, "Automatische Verifizierung");
+  } catch (err) {
+    logger.error("Verify-Rollen konnten nicht vergeben werden.", {
+      guildId: guild.id,
+      userId: member.id,
+      roleIds: missing,
+      error: err,
+    });
+  }
+
+  // `roles.add` aktualisiert den Cache – falls doch etwas fehlt, einmal nach
+  // dem Gateway-Stand fragen, bevor der Bot das Mitglied rausholt.
+  const stillMissing = missing.filter((roleId) => !member.roles.cache.has(roleId));
+  if (stillMissing.length > 0) {
+    logger.error("Verify-Rollen fehlen trotz Vergabeversuch.", {
+      guildId: guild.id,
+      userId: member.id,
+      roleIds: stillMissing,
+    });
+    return false;
+  }
+
+  logger.info("Verify-Rollen vergeben.", {
+    guildId: guild.id,
+    userId: member.id,
+    roleIds: missing,
+  });
+  return true;
 }
 
 /**
@@ -268,6 +338,8 @@ async function runVerify(
   }
 
   const name = spokenName(member.displayName);
+  /** Wird im `finally` ausgewertet, um das Aufräumen zu protokollieren. */
+  let passed = false;
 
   try {
     // 5) Begrüßung mit der Check-Aufforderung.
@@ -282,7 +354,6 @@ async function runVerify(
 
     // 6) Mehrere Versuche direkt nacheinander. Die meisten Fehler sind
     //    Einstellungsprobleme, die sich sofort korrigieren lassen.
-    let passed = false;
     let lastResult: MicCheckResult | undefined;
 
     for (let attempt = 1; attempt <= MIC_MAX_ATTEMPTS; attempt++) {
@@ -364,22 +435,21 @@ async function runVerify(
         signal,
       );
 
-      const rolesToAdd = cfg.roles.filter(
-        (roleId) => !member.roles.cache.has(roleId),
-      );
-      if (rolesToAdd.length > 0) {
-        try {
-          await member.roles.add(rolesToAdd, "Automatische Verifizierung");
-        } catch (err) {
-          logger.error("Verify-Rollen konnten nicht vergeben werden.", {
-            guildId: guild.id,
-            userId: member.id,
-            roleIds: rolesToAdd,
-            error: err,
-          });
-        }
-      }
+      await grantVerifyRoles(guild, member, cfg.roles);
       clearCooldown(guild.id, member.id);
+
+      // Erst jetzt wird das Mitglied aus dem Call geholt: Ansage ist
+      // ausgesprochen und die Rollen stehen. Vorher wirkt das Trennen wie
+      // eine Strafe, weil die Freigabe noch gar nicht angekommen ist.
+      await speak(
+        guild,
+        verifyChannelId,
+        MIC_PASS_DISCONNECT_MESSAGE,
+        cfg.voice,
+        member.id,
+        signal,
+      );
+      await abortableDelay(MIC_PASS_GRACE_MS, signal);
     } else {
       // 6b) Alle Versuche durch: Wartezeit setzen, damit die Schlange
       //     weiterläuft. Wer in der Zwischenzeit wieder in den Warteraum
@@ -441,6 +511,11 @@ async function runVerify(
     //    noch im Prüf-Kanal ist. Wer inzwischen woanders unterwegs ist, wird
     //    nicht zusätzlich aus seinem neuen Kanal gerissen.
     if (isMemberInChannel(guild, member.id, verifyChannelId)) {
+      logger.info("Mitglied wird aus dem Prüf-Kanal geholt.", {
+        guildId: guild.id,
+        userId: member.id,
+        passed,
+      });
       await member.voice.setChannel(null).catch(() => undefined);
     }
   }
