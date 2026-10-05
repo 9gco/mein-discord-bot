@@ -25,6 +25,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const HOME = dirname(fileURLToPath(import.meta.url));
 
 /**
+ * Stand dieses Bootstrap. Steht als erste Zeile im Log und beantwortet die
+ * Frage "ist meine main.js aktuell?" ohne Dateivergleich - der Zeitstempel der
+ * hochgeladenen Datei sagt nichts aus, Copy-Dateien behalten ihn vom Original.
+ *
+ * Bei jeder inhaltlichen Aenderung hier hochzaehlen.
+ */
+const BOOTSTRAP_BUILD = "2026-10-06a";
+console.log(`[start] Bootstrap ${BOOTSTRAP_BUILD}`);
+
+/**
  * Liest eine .env-Datei ohne Dependency. main.js laeuft vor `npm install`,
  * dotenv waere da also noch nicht verfuegbar - deshalb wird hier von Hand
  * geparst. `bot.env` wird mitgelesen, weil manche Dateimanager Dateien mit
