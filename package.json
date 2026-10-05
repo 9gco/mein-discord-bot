@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/publish-main.js",
+    "desktop": "node scripts/publish-main.js",
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "discord-check"
