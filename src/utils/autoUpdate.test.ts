@@ -57,10 +57,19 @@ describe("needsUpdate", () => {
 });
 
 describe("readAutoUpdateSettings", () => {
-  it("ist ohne AUTO_UPDATE=true inaktiv", () => {
+  it("ist ohne AUTO_UPDATE inaktiv", () => {
     expect(readAutoUpdateSettings({})).toBeUndefined();
     expect(readAutoUpdateSettings({ AUTO_UPDATE: "false" })).toBeUndefined();
-    expect(readAutoUpdateSettings({ AUTO_UPDATE: "1" })).toBeUndefined();
+    expect(readAutoUpdateSettings({ AUTO_UPDATE: "0" })).toBeUndefined();
+    expect(readAutoUpdateSettings({ AUTO_UPDATE: "" })).toBeUndefined();
+  });
+
+  it("akzeptiert true und die Schreibweise der Pterodactyl-Eggs", () => {
+    // Das Egg zieht sein eigenes git pull bei AUTO_UPDATE=1 und erwartet
+    // dann, dass auch der Bot sich aktualisiert.
+    for (const value of ["true", "1", "TRUE", "yes"]) {
+      expect(readAutoUpdateSettings({ AUTO_UPDATE: value })).toBeDefined();
+    }
   });
 
   it("nutzt Vorgaben, wenn nichts weiter gesetzt ist", () => {

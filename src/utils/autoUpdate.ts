@@ -36,11 +36,22 @@ export interface AutoUpdateSettings {
   firstDelayMs: number;
 }
 
+/**
+ * Pterodactyl-Eggs benutzen fuer ihr eigenes `git pull` ebenfalls den Namen
+ * `AUTO_UPDATE`, aber mit dem Wert "1". Wer im Panel also nach der Anleitung
+ * des Eggs aufdreht, erwartet ein Update und bekommt keins. Deshalb werden
+ * beide Schreibweisen akzeptiert.
+ */
+function isEnabled(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
 export function readAutoUpdateSettings(
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = process.cwd(),
 ): AutoUpdateSettings | undefined {
-  if (env["AUTO_UPDATE"] !== "true") return undefined;
+  if (!isEnabled(env["AUTO_UPDATE"])) return undefined;
 
   const intervalRaw = Number(env["AUTO_UPDATE_INTERVAL_MIN"] ?? DEFAULT_INTERVAL_MIN);
   const intervalMin = Number.isFinite(intervalRaw) && intervalRaw > 0 ? intervalRaw : DEFAULT_INTERVAL_MIN;
