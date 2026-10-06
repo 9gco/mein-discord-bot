@@ -46,7 +46,7 @@ const command: BotCommand = {
       sub
         .setName("banner")
         .setDescription(
-          "Setzt das Willkommens-/Bannerbild (Datei-Upload oder URL, auch GIF).",
+          "Setzt das Willkommens-/Bannerbild (Datei-Upload oder URL auch GIF).",
         )
         .addAttachmentOption((o) =>
           o
@@ -56,7 +56,7 @@ const command: BotCommand = {
         .addStringOption((o) =>
           o
             .setName("url")
-            .setDescription("Direktlink zum Banner (http/https, auch .gif)."),
+            .setDescription("Direktlink zum Banner (http/https auch .gif)."),
         ),
     )
     .addSubcommand((sub) =>
@@ -81,7 +81,7 @@ const command: BotCommand = {
         .addChannelOption((o) =>
           o
             .setName("channel")
-            .setDescription("Kanal, in den Willkommensnachrichten gehen.")
+            .setDescription("Kanal in den Willkommensnachrichten gehen.")
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(true),
         ),
@@ -100,7 +100,7 @@ const command: BotCommand = {
     .addSubcommandGroup((group) =>
       group
         .setName("role")
-        .setDescription("Verwaltet die Rollen, die neue Mitglieder erhalten.")
+        .setDescription("Verwaltet die Rollen die neue Mitglieder erhalten.")
         .addSubcommand((sub) =>
           sub
             .setName("add")
@@ -108,7 +108,7 @@ const command: BotCommand = {
             .addRoleOption((o) =>
               o
                 .setName("role")
-                .setDescription("Die Rolle, die automatisch vergeben wird.")
+                .setDescription("Die Rolle die automatisch vergeben wird.")
                 .setRequired(true),
             ),
         )
@@ -119,7 +119,7 @@ const command: BotCommand = {
             .addRoleOption((o) =>
               o
                 .setName("role")
-                .setDescription("Die Rolle, die entfernt werden soll.")
+                .setDescription("Die Rolle die entfernt werden soll.")
                 .setRequired(true),
             ),
         )
@@ -135,7 +135,7 @@ const command: BotCommand = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       await interaction.reply({
         content:
-          "Du benötigst die Berechtigung „Server verwalten“, um das Willkommenssystem einzurichten.",
+          "Du benötigst die Berechtigung „Server verwalten“ um das Willkommenssystem einzurichten.",
         flags: MessageFlags.Ephemeral,
       });
       return;

@@ -74,7 +74,7 @@ const command: {
     .addSubcommand((sub) =>
       sub
         .setName("waiting")
-        .setDescription("Setzt den Warteraum, aus dem Mitglieder gezogen werden.")
+            .setDescription("Setzt den Warteraum aus dem Mitglieder gezogen werden.")
         .addChannelOption((o) =>
           o
             .setName("channel")
@@ -97,7 +97,7 @@ const command: {
     .addSubcommand((sub) =>
       sub
         .setName("speaknow")
-        .setDescription("Setzt den Text, mit dem das Sprechen freigeschaltet wird."),
+        .setDescription("Setzt den Text mit dem das Sprechen freigeschaltet wird."),
     )
     .addSubcommand((sub) =>
       sub
@@ -131,7 +131,7 @@ const command: {
         .addStringOption((o) =>
           o
             .setName("text")
-            .setDescription("Der Text, der gesprochen werden soll.")
+            .setDescription("Der Text der gesprochen werden soll.")
             .setRequired(true),
         ),
     )
@@ -176,7 +176,7 @@ const command: {
     }
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       await interaction.reply({
-        content: "Du benötigst „Server verwalten“, um das Verify-System zu nutzen.",
+        content: "Du benötigst „Server verwalten“ um das Verify-System zu nutzen.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -221,14 +221,14 @@ const command: {
           new LabelBuilder()
             .setLabel("Text")
             .setDescription(
-              "Wird gesprochen, danach wird das Sprechrecht freigeschaltet.",
+              "Wird gesprochen danach wird das Sprechrecht freigeschaltet.",
             )
             .setTextInputComponent(
               new TextInputBuilder()
                 .setCustomId("speaknow")
                 .setStyle(TextInputStyle.Paragraph)
                 .setValue(cfg.speakNowMessage.slice(0, 4000))
-                .setPlaceholder("So, {user}, du kannst jetzt sprechen...")
+                .setPlaceholder("So {user} du kannst jetzt sprechen...")
                 .setMinLength(1)
                 .setMaxLength(4000)
                 .setRequired(true),
@@ -253,7 +253,7 @@ const command: {
       if (sub === "status") {
         const roleMentions =
           cfg.roles.length > 0
-            ? cfg.roles.map((id) => `<@&${id}>`).join(", ")
+            ? cfg.roles.map((id) => `<@&${id}>`).join(" ")
             : "Keine";
         message =
           `**Status:** ${cfg.enabled ? "Aktiviert" : "Deaktiviert"}\n` +
@@ -443,7 +443,7 @@ const command: {
         cfg.roles = Array.from(new Set([...cfg.roles, ...ids]));
         await saveVerifyConfig(guildId, cfg);
         await interaction.editReply({
-          content: `Verify-Rollen gesetzt:\n${ids.map((id) => `<@&${id}>`).join(", ")}`,
+          content: `Verify-Rollen gesetzt:\n${ids.map((id) => `<@&${id}>`).join(" ")}`,
         });
         return;
       }
@@ -460,7 +460,7 @@ const command: {
         await saveVerifyConfig(guildId, cfg);
         await interaction.editReply({
           content:
-            "Sprech-Aufforderung gespeichert. Sie wird gesprochen, danach " +
+            "Sprech-Aufforderung gespeichert. Sie wird gesprochen danach " +
             "bekommt das Mitglied sein Sprechrecht.",
         });
         return;

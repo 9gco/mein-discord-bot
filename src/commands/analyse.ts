@@ -28,7 +28,7 @@ const command: BotCommand = {
         .addUserOption((o) =>
           o
             .setName("user")
-            .setDescription("Der Analyst, der den Key erhält.")
+            .setDescription("Der Analyst der den Key erhält.")
             .setRequired(true),
         )
         .addStringOption((o) =>
@@ -45,7 +45,7 @@ const command: BotCommand = {
         .addUserOption((o) =>
           o
             .setName("user")
-            .setDescription("Der Analyst, dessen Keys angezeigt werden.")
+            .setDescription("Der Analyst dessen Keys angezeigt werden.")
             .setRequired(true),
         ),
     )
@@ -56,7 +56,7 @@ const command: BotCommand = {
         .addStringOption((o) =>
           o
             .setName("key")
-            .setDescription("Der Key, der widerrufen werden soll.")
+            .setDescription("Der Key der widerrufen werden soll.")
             .setRequired(true),
         ),
     )
@@ -68,7 +68,7 @@ const command: BotCommand = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       await interaction.reply({
         content:
-          "Du benötigst die Berechtigung „Server verwalten“, um Keys zu vergeben.",
+          "Du benötigst die Berechtigung „Server verwalten“ um Keys zu vergeben.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -115,7 +115,7 @@ const command: BotCommand = {
 
         await interaction.editReply(
           `✅ Key \`${key}\` wurde per DM an <@${user.id}> gesendet.\n` +
-            `Sobald der Analyst mit ${APPROVE_EMOJI} auf die Nachricht reagiert, wird der Key automatisch als **VERBRAUCHT** markiert.\n\n` +
+            `Sobald der Analyst mit ${APPROVE_EMOJI} auf die Nachricht reagiert wird der Key automatisch als **VERBRAUCHT** markiert.\n\n` +
             ``,
         );
         return;

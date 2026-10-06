@@ -220,13 +220,13 @@ function describeMicProblem(reason: MicCheckReason): string {
     case "no_speech":
       return "Von deinem Mikrofon ist bei mir überhaupt nichts angekommen.";
     case "too_short":
-      return "Der Test war etwas zu kurz. Bitte rede ein wenig länger, damit ich dich richtig einschätzen kann.";
+      return "Der Test war etwas zu kurz. Bitte rede ein wenig länger damit ich dich richtig einschätzen kann.";
     case "clipping":
-      return "Dein Mikrofon ist übersteuert, die Stimme verzerrt. Bitte reduziere die Eingabelautstärke oder den Mikrofon-Gain etwas.";
+      return "Dein Mikrofon ist übersteuert die Stimme verzerrt. Bitte reduziere die Eingabelautstärke oder den Mikrofon-Gain etwas.";
     case "noisy":
-      return "Bei dir ist sehr viel Hintergrundgeräusch, wodurch ich dich nur schwer verstehen kann. Ein ruhigerer Raum wäre die bessere Wahl.";
+      return "Bei dir ist sehr viel Hintergrundgeräusch wodurch ich dich nur schwer verstehen kann. Ein ruhigerer Raum wäre die bessere Wahl.";
     case "too_quiet":
-      return "Dein Mikrofon ist sehr leise, ich kann dich kaum verstehen. Bitte erhöhe die Eingabelautstärke etwas.";
+      return "Dein Mikrofon ist sehr leise ich kann dich kaum verstehen. Bitte erhöhe die Eingabelautstärke etwas.";
     case "error":
     default:
       return "Bei der Durchführung des Tests ist leider ein technischer Fehler aufgetreten. Bitte versuche es gleich noch einmal.";
@@ -348,7 +348,7 @@ async function runVerify(
         await speak(
           guild,
           verifyChannelId,
-          "Kein Problem, wir führen den Test noch einmal durch.",
+          "Kein Problem wir führen den Test noch einmal durch.",
           cfg.voice,
           member.id,
           signal,
@@ -459,7 +459,7 @@ const problem = describeMicProblem(result.reason ?? "error");
       await speak(
         guild,
         verifyChannelId,
-        `Komm bitte in ${seconds} Sekunden noch einmal in den Warteraum, ` +
+        `Komm bitte in ${seconds} Sekunden noch einmal in den Warteraum ` +
           `dann versuchen wir es erneut.`,
         cfg.voice,
         member.id,

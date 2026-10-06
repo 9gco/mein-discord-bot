@@ -58,7 +58,7 @@ const DEFAULTS: Omit<
   color: DEFAULT_COLOR,
   title: "Willkommen im Ticket-System!",
   welcomeText:
-    "Bitte wähle eine unserer Ticketkategorien aus, um ein Ticket zu erstellen.",
+    "Bitte wähle eine unserer Ticketkategorien aus um ein Ticket zu erstellen.",
   noteText:
     "Support- und Partnerschaftsanfragen werden mithilfe einer DSGVO-konform gehosteten künstlichen Intelligenz überprüft. Nach dieser Prüfung kann eine Anfrage gegebenenfalls abgelehnt werden.",
   categories: [

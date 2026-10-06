@@ -145,7 +145,7 @@ const command: BotCommand = {
         .addChannelOption((o) =>
           o
             .setName("channel")
-            .setDescription("Kanal, in dem das Panel erscheint.")
+            .setDescription("Kanal in dem das Panel erscheint.")
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(true),
         ),
@@ -173,7 +173,7 @@ const command: BotCommand = {
     .addSubcommand((sub) =>
       sub
         .setName("ping")
-        .setDescription("Rolle, die bei Tickets gepingt wird.")
+        .setDescription("Rolle die bei Tickets gepingt wird.")
         .addRoleOption((o) =>
           o
             .setName("role")
@@ -194,18 +194,18 @@ const command: BotCommand = {
     .addSubcommand((sub) =>
       sub
         .setName("color")
-        .setDescription("Setzt die Akzentfarbe (hex, z. B. 1E9CFF).")
+        .setDescription("Setzt die Akzentfarbe (hex z. B. 1E9CFF).")
         .addStringOption((o) =>
           o
             .setName("hex")
-            .setDescription("Hex-Wert ohne #, z. B. 1E9CFF.")
+            .setDescription("Hex-Wert ohne # z. B. 1E9CFF.")
             .setRequired(true),
         ),
     )
     .addSubcommand((sub) =>
       sub
         .setName("text")
-        .setDescription("Bearbeitet Titel, Willkommenstext und Hinweis.")
+        .setDescription("Bearbeitet Titel Willkommenstext und Hinweis.")
     )
     .addSubcommandGroup((group) =>
       group
@@ -218,13 +218,13 @@ const command: BotCommand = {
             .addStringOption((o) =>
               o
                 .setName("name")
-                .setDescription("Name der Kategorie, z. B. Support.")
+                .setDescription("Name der Kategorie z. B. Support.")
                 .setRequired(true),
             )
             .addStringOption((o) =>
               o
                 .setName("emoji")
-                .setDescription("Emoji, z. B. 👨‍🔧.")
+                .setDescription("Emoji z. B. 👨‍🔧.")
                 .setRequired(true),
             )
             .addStringOption((o) =>
@@ -278,7 +278,7 @@ const command: BotCommand = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       await interaction.reply({
         content:
-          "Du benötigst die Berechtigung „Server verwalten“, um das Ticket-System zu verwalten.",
+          "Du benötigst die Berechtigung „Server verwalten“ um das Ticket-System zu verwalten.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -652,7 +652,7 @@ const command: BotCommand = {
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId("ticket:close:confirm")
-          .setLabel("Ja, schließen")
+          .setLabel("Ja schließen")
           .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
           .setCustomId("ticket:close:cancel")

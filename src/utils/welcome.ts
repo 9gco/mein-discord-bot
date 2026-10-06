@@ -75,7 +75,7 @@ export function buildWelcomeEmbed(
     .setTitle("Willkommen")
     .setDescription(
       `👋 <@${memberId}> willkommen auf **${serverName}**! 🎉\n\n` +
-        `Bevor du loslegst, wirf bitte einen kurzen Blick in unser Regelwerk, ` +
+        `Bevor du loslegst wirf bitte einen kurzen Blick in unser Regelwerk ` +
         `um dir den Start so angenehm wie möglich zu machen und Missverständnisse ` +
         `zu vermeiden. Die Regeln gelten für alle und sind der Schlüssel zu einem ` +
         `langen und positiven Aufenthalt auf unserem Server. Lies sie dir aufmerksam durch!\n\n` +

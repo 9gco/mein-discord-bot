@@ -104,24 +104,24 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
  *    entstehen in der Stimme, nicht zwischen abgespielten Dateien.
  */
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 5;
+const TEXTS_VERSION = 6;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
   message:
-    "Willkommen auf unserem Server, {user}. Schön, dass du es hierher geschafft hast. " +
-    "Damit im Voice-Chat später alles klar und deutlich klingt, " +
+    "Willkommen auf unserem Server {user}. Schön dass du es hierher geschafft hast. " +
+    "Damit im Voice-Chat später alles klar und deutlich klingt " +
     "prüfen wir jetzt kurz dein Mikrofon.",
   speakNowMessage:
-    "Wenn du soweit bist, rede einfach ein paar Sätze. " +
-    "Erzähl mir ruhig etwas Alltägliches, ich höre zu.",
+    "Wenn du soweit bist rede einfach ein paar Sätze. " +
+    "Erzähl mir ruhig etwas Alltägliches ich höre zu.",
   micFailedMessage:
-    "Prüfe bitte kurz deine Mikrofoneinstellungen in Discord und stelle sicher, " +
+    "Prüfe bitte kurz deine Mikrofoneinstellungen in Discord und stelle sicher " +
     "dass dein Eingabegerät wirklich ausgewählt ist. Danach kannst du es noch einmal versuchen.",
   micPassedMessage:
-    "Ausgezeichnet, {user}, deine Stimme kommt klar und deutlich bei mir an. " +
+    "Ausgezeichnet {user} deine Stimme kommt klar und deutlich bei mir an. " +
     "Damit bist du durch und hast Zugang zu unserem Server. Viel Spaß dir.",
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
@@ -141,14 +141,14 @@ export const VERIFY_VOICES = [
   { name: "de-DE-AmalaNeural", label: "Deutsch – Amala (weiblich)" },
   {
     name: "de-DE-SeraphinaMultilingualNeural",
-    label: "Deutsch – Seraphina (weiblich, multilingual)",
+    label: "Deutsch – Seraphina (weiblich multilingual)",
   },
   { name: "de-DE-ConradNeural", label: "Deutsch – Conrad (männlich)" },
   {
     name: "de-DE-FlorianMultilingualNeural",
-    label: "Deutsch – Florian (männlich, multilingual)",
+    label: "Deutsch – Florian (männlich multilingual)",
   },
-  { name: "de-DE-KillianNeural", label: "Deutsch – Killian (männlich, jung)" },
+  { name: "de-DE-KillianNeural", label: "Deutsch – Killian (männlich jung)" },
   { name: "de-AT-IngridNeural", label: "Österreichisch – Ingrid (weiblich)" },
   { name: "de-AT-JonasNeural", label: "Österreichisch – Jonas (männlich)" },
   { name: "de-CH-LeniNeural", label: "Schweizerdeutsch – Leni (weiblich)" },

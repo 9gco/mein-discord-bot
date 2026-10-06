@@ -42,9 +42,9 @@ export function renderKeyMessage(key: string): string {
     "",
     "# ⚠️   W I C H T I G E R   H I N W E I S :",
     "",
-    `» Bitte reagiere SOFORT mit einem Emoji (${APPROVE_EMOJI}) auf diese Nachricht, sobald du den Key eingelöst hast!`,
+    `» Bitte reagiere SOFORT mit einem Emoji (${APPROVE_EMOJI}) auf diese Nachricht sobald du den Key eingelöst hast!`,
     "",
-    "» Mit dem Abhaken wird der Key als VERBRAUCHT markiert, um Doppelnutzungen durch andere Analysten zu verhindern.",
+    "» Mit dem Abhaken wird der Key als VERBRAUCHT markiert um Doppelnutzungen durch andere Analysten zu verhindern.",
   ].join("\n");
 }
 
