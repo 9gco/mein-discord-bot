@@ -201,7 +201,7 @@ const command: {
                 .setCustomId("message")
                 .setStyle(TextInputStyle.Paragraph)
                 .setValue(cfg.message.slice(0, 4000))
-                .setPlaceholder("Willkommen {user}...")
+                .setPlaceholder("Hey {user} schön dass du da bist...")
                 .setMinLength(1)
                 .setMaxLength(4000)
                 .setRequired(true),
@@ -228,7 +228,7 @@ const command: {
                 .setCustomId("speaknow")
                 .setStyle(TextInputStyle.Paragraph)
                 .setValue(cfg.speakNowMessage.slice(0, 4000))
-                .setPlaceholder("So {user} du kannst jetzt sprechen...")
+                .setPlaceholder("So {user} fang einfach an...")
                 .setMinLength(1)
                 .setMaxLength(4000)
                 .setRequired(true),

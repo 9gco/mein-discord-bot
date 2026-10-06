@@ -102,27 +102,34 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
  *    FiveM-Server wäre "Channel" das falsche Wort, das sind Discord-Begriffe.
  * 4. Eine Ansage ist ein durchgehender Satzgefug, keine Liste. Die Pausen
  *    entstehen in der Stimme, nicht zwischen abgespielten Dateien.
+ * 5. Es soll klingen wie ein Mensch im Voice-Chat. Kurze alltägliche Sätze,
+ *    zugehört und mitgedacht - kein Ton auf den man "das ist eine KI" denkt.
+ *    Nichts davon: "Ausgezeichnet", "leider ein technischer Fehler aufgetreten",
+ *    "ich höre zu". Ein Mensch sagt "Top das kommt klar an" oder "hoppla da ist
+ *    etwas schiefgelaufen".
+ * 6. Ohne Kommas, wie alle anderen Texte im Bot auch.
  */
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 6;
+const TEXTS_VERSION = 7;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
   message:
-    "Willkommen auf unserem Server {user}. Schön dass du es hierher geschafft hast. " +
-    "Damit im Voice-Chat später alles klar und deutlich klingt " +
-    "prüfen wir jetzt kurz dein Mikrofon.",
+    "Hey {user} schön dass du da bist. " +
+    "Wir machen kurz eine Mikrofonprobe damit dich hier alle gut verstehen. " +
+    "Das geht ruckzuck.",
   speakNowMessage:
-    "Wenn du soweit bist rede einfach ein paar Sätze. " +
-    "Erzähl mir ruhig etwas Alltägliches ich höre zu.",
+    "So {user} fang einfach an. " +
+    "Red ein paar Sätze was du heute so gemacht hast oder was dir sonst noch so einfällt.",
   micFailedMessage:
-    "Prüfe bitte kurz deine Mikrofoneinstellungen in Discord und stelle sicher " +
-    "dass dein Eingabegerät wirklich ausgewählt ist. Danach kannst du es noch einmal versuchen.",
+    "Schau mal kurz in die Discord Toninstellungen und guck ob dein Mikrofon richtig ausgewählt ist. " +
+    "In den meisten Fällen liegt es genau daran.",
   micPassedMessage:
-    "Ausgezeichnet {user} deine Stimme kommt klar und deutlich bei mir an. " +
-    "Damit bist du durch und hast Zugang zu unserem Server. Viel Spaß dir.",
+    "Top {user} das kommt bei mir klar und sauber an. " +
+    "Du bist durch und hast damit Zugang zum Server. " +
+    "Viel Spaß dabei.",
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
   textsVersion: TEXTS_VERSION,

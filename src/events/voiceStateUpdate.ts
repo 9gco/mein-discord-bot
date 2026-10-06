@@ -218,18 +218,18 @@ async function grantVerifyRoles(
 function describeMicProblem(reason: MicCheckReason): string {
   switch (reason) {
     case "no_speech":
-      return "Von deinem Mikrofon ist bei mir überhaupt nichts angekommen.";
+      return "Ich höre bei dir gar nichts. Kann es sein dass dein Mikrofon stumm ist?";
     case "too_short":
-      return "Der Test war etwas zu kurz. Bitte rede ein wenig länger damit ich dich richtig einschätzen kann.";
+      return "Das war gerade ziemlich kurz. Nimm dir ein bisschen Zeit red einfach ein paar Sekunden weiter.";
     case "clipping":
-      return "Dein Mikrofon ist übersteuert die Stimme verzerrt. Bitte reduziere die Eingabelautstärke oder den Mikrofon-Gain etwas.";
+      return "Achtung das war zu laut und die Stimme ist verzerrt. Geh mal ein Stück vom Mikrofon weg oder dreh den Pegel runter.";
     case "noisy":
-      return "Bei dir ist sehr viel Hintergrundgeräusch wodurch ich dich nur schwer verstehen kann. Ein ruhigerer Raum wäre die bessere Wahl.";
+      return "Da höre ich ziemlich viel im Hintergrund. Zieh mal kurz in einen ruhigeren Raum dann klingt das gleich viel besser.";
     case "too_quiet":
-      return "Dein Mikrofon ist sehr leise ich kann dich kaum verstehen. Bitte erhöhe die Eingabelautstärke etwas.";
+      return "Bei mir kommt das sehr leise an. Dreh mal die Eingabelautstärke ein Stück höher das wäre super.";
     case "error":
     default:
-      return "Bei der Durchführung des Tests ist leider ein technischer Fehler aufgetreten. Bitte versuche es gleich noch einmal.";
+      return "Hoppla da ist gerade etwas schiefgelaufen. Ich hab das nicht richtig hinbekommen.";
   }
 }
 
@@ -459,8 +459,8 @@ const problem = describeMicProblem(result.reason ?? "error");
       await speak(
         guild,
         verifyChannelId,
-        `Komm bitte in ${seconds} Sekunden noch einmal in den Warteraum ` +
-          `dann versuchen wir es erneut.`,
+        `Kein Stress. Komm in ${seconds} Sekunden noch einmal in den Warteraum ` +
+          `dann gehen wir das zusammen noch einmal durch.`,
         cfg.voice,
         member.id,
         signal,
