@@ -108,9 +108,13 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
  *    "ich höre zu". Ein Mensch sagt "Top das kommt klar an" oder "hoppla da ist
  *    etwas schiefgelaufen".
  * 6. Ohne Kommas, wie alle anderen Texte im Bot auch.
+ * 7. Nur Wörter, die die Stimme sauber trifft. Umgangssprache wie "ruckzuck"
+ *    oder "guck" kommt als Kauderwelsch heraus, und ein Imperativ wie "Red
+ *    ein paar Sätze" sieht für die Stimme aus wie das englische Wort. Im
+ *    Zweifel das Wort nehmen, das man auch so schreibt wie man es hört.
  */
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 7;
+const TEXTS_VERSION = 8;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
@@ -119,17 +123,18 @@ const DEFAULT_CONFIG: VerifyConfig = {
   message:
     "Hey {user} schön dass du da bist. " +
     "Wir machen kurz eine Mikrofonprobe damit dich hier alle gut verstehen. " +
-    "Das geht ruckzuck.",
+    "Das dauert nur ein paar Sekunden.",
   speakNowMessage:
-    "So {user} fang einfach an. " +
-    "Red ein paar Sätze was du heute so gemacht hast oder was dir sonst noch so einfällt.",
+    "So {user} du bist dran. " +
+    "Sprich einfach ein paar Sätze. " +
+    "Erzähl mir wie dein Tag so war oder was dir sonst noch einfällt.",
   micFailedMessage:
-    "Schau mal kurz in die Discord Toninstellungen und guck ob dein Mikrofon richtig ausgewählt ist. " +
+    "Schau bitte kurz in die Discord Toninstellungen ob dein Mikrofon richtig ausgewählt ist. " +
     "In den meisten Fällen liegt es genau daran.",
   micPassedMessage:
-    "Top {user} das kommt bei mir klar und sauber an. " +
-    "Du bist durch und hast damit Zugang zum Server. " +
-    "Viel Spaß dabei.",
+    "Top {user} das klingt bei mir klar und sauber. " +
+    "Du bist durch und hast Zugang zum Server. " +
+    "Schönen Tag dir noch.",
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
   textsVersion: TEXTS_VERSION,

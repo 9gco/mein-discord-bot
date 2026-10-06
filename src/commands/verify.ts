@@ -228,7 +228,7 @@ const command: {
                 .setCustomId("speaknow")
                 .setStyle(TextInputStyle.Paragraph)
                 .setValue(cfg.speakNowMessage.slice(0, 4000))
-                .setPlaceholder("So {user} fang einfach an...")
+                .setPlaceholder("So {user} du bist dran...")
                 .setMinLength(1)
                 .setMaxLength(4000)
                 .setRequired(true),

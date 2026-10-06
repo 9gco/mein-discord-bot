@@ -218,18 +218,18 @@ async function grantVerifyRoles(
 function describeMicProblem(reason: MicCheckReason): string {
   switch (reason) {
     case "no_speech":
-      return "Ich höre bei dir gar nichts. Kann es sein dass dein Mikrofon stumm ist?";
+      return "Ich höre bei dir gar nichts. Ist dein Mikrofon vielleicht stumm geschaltet?";
     case "too_short":
-      return "Das war gerade ziemlich kurz. Nimm dir ein bisschen Zeit red einfach ein paar Sekunden weiter.";
+      return "Das war gerade ziemlich kurz. Nimm dir ruhig ein bisschen Zeit und sprich noch ein paar Sekunden weiter.";
     case "clipping":
-      return "Achtung das war zu laut und die Stimme ist verzerrt. Geh mal ein Stück vom Mikrofon weg oder dreh den Pegel runter.";
+      return "Achtung das war zu laut und die Stimme ist verzerrt. Geh bitte ein Stück vom Mikrofon weg oder dreh den Pegel ein wenig runter.";
     case "noisy":
-      return "Da höre ich ziemlich viel im Hintergrund. Zieh mal kurz in einen ruhigeren Raum dann klingt das gleich viel besser.";
+      return "Da höre ich ziemlich viel im Hintergrund. Zieh am besten kurz in einen ruhigeren Raum dann klingt das gleich viel besser.";
     case "too_quiet":
-      return "Bei mir kommt das sehr leise an. Dreh mal die Eingabelautstärke ein Stück höher das wäre super.";
+      return "Bei mir kommt das sehr leise an. Dreh bitte die Eingabelautstärke ein wenig höher dann passt das.";
     case "error":
     default:
-      return "Hoppla da ist gerade etwas schiefgelaufen. Ich hab das nicht richtig hinbekommen.";
+      return "Hoppla da ist gerade etwas schiefgelaufen. Ich probiere das gleich noch einmal.";
   }
 }
 
@@ -348,7 +348,7 @@ async function runVerify(
         await speak(
           guild,
           verifyChannelId,
-          "Kein Problem wir führen den Test noch einmal durch.",
+          "Kein Problem wir machen es einfach noch einmal.",
           cfg.voice,
           member.id,
           signal,
@@ -459,8 +459,8 @@ const problem = describeMicProblem(result.reason ?? "error");
       await speak(
         guild,
         verifyChannelId,
-        `Kein Stress. Komm in ${seconds} Sekunden noch einmal in den Warteraum ` +
-          `dann gehen wir das zusammen noch einmal durch.`,
+        `Mach dir keinen Kopf. Komm in ${seconds} Sekunden noch einmal in den Warteraum ` +
+          `dann machen wir es zusammen noch einmal.`,
         cfg.voice,
         member.id,
         signal,
