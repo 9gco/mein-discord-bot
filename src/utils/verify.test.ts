@@ -317,3 +317,27 @@ describe("Ansage in Stücken", () => {
     expect(verify.chunkAnnouncement("nur ein Satz")).toEqual(["nur ein Satz"]);
   });
 });
+
+describe("Varianten der Ansage", () => {
+  const varianten = ["Hallo eins.", "Hallo zwei.", "Hallo drei."];
+
+  it("wählt immer eine der getrennten Varianten", () => {
+    const text = varianten.join(verify.VARIANT_SEPARATOR);
+    for (let i = 0; i < 50; i++) {
+      expect(varianten).toContain(verify.pickVariant(text));
+    }
+  });
+
+  it("verteilt sich über alle Varianten", () => {
+    const text = varianten.join(verify.VARIANT_SEPARATOR);
+    const gesehen = new Set<string>();
+    for (let i = 0; i < 200; i++) gesehen.add(verify.pickVariant(text));
+    expect(gesehen.size).toBe(varianten.length);
+  });
+
+  it("gibt einen Text ohne Trenner unverändert zurück", () => {
+    expect(verify.pickVariant("  Nur ein einziger Text.  ")).toBe(
+      "  Nur ein einziger Text.  ",
+    );
+  });
+});

@@ -20,6 +20,8 @@ import {
   isWaiting,
   logVerifyPermissions,
   peekFirstEligible,
+  pickRandom,
+  pickVariant,
   playBuffers,
   renumberWaiting,
   runExclusive,
@@ -216,21 +218,33 @@ async function grantVerifyRoles(
  * bekommen".
  */
 function describeMicProblem(reason: MicCheckReason): string {
-  switch (reason) {
-    case "no_speech":
-      return "Ich höre bei dir gar nichts. Ist dein Mikrofon vielleicht stumm geschaltet?";
-    case "too_short":
-      return "Das war gerade ziemlich kurz. Nimm dir ruhig ein bisschen Zeit und sprich noch ein paar Sekunden weiter.";
-    case "clipping":
-      return "Achtung das war zu laut und die Stimme ist verzerrt. Geh bitte ein Stück vom Mikrofon weg oder dreh den Pegel ein wenig runter.";
-    case "noisy":
-      return "Da höre ich ziemlich viel im Hintergrund. Zieh am besten kurz in einen ruhigeren Raum dann klingt das gleich viel besser.";
-    case "too_quiet":
-      return "Bei mir kommt das sehr leise an. Dreh bitte die Eingabelautstärke ein wenig höher dann passt das.";
-    case "error":
-    default:
-      return "Hoppla da ist gerade etwas schiefgelaufen. Ich probiere das gleich noch einmal.";
-  }
+  const texts: Partial<Record<MicCheckReason, readonly string[]>> = {
+    no_speech: [
+      "Ich höre bei dir gar nichts. Ist dein Mikrofon vielleicht stumm geschaltet?",
+      "Bei mir kommt kein Ton an. Schau kurz ob dein Mikrofon stumm ist oder nicht angeschlossen.",
+    ],
+    too_short: [
+      "Das war gerade ziemlich kurz. Nimm dir ruhig ein bisschen Zeit und sprich noch ein paar Sekunden weiter.",
+      "Zu kurz für mich. Sprich ruhig ein bisschen länger dann kann ich dich besser einschätzen.",
+    ],
+    clipping: [
+      "Achtung das war zu laut und die Stimme ist verzerrt. Geh bitte ein Stück vom Mikrofon weg oder dreh den Pegel ein wenig runter.",
+      "Das war leider zu laut die Stimme bricht dabei. Geh etwas weiter vom Mikrofon weg oder dreh den Pegel runter.",
+    ],
+    noisy: [
+      "Da höre ich ziemlich viel im Hintergrund. Zieh am besten kurz in einen ruhigeren Raum dann klingt das gleich viel besser.",
+      "Im Hintergrund läuft ziemlich viel. Wenn du kurz in einen ruhigeren Ort wechselst hört sich das gleich viel besser an.",
+    ],
+    too_quiet: [
+      "Bei mir kommt das sehr leise an. Dreh bitte die Eingabelautstärke ein wenig höher dann passt das.",
+      "Das kommt sehr leise bei mir an. Ein bisschen lauter wäre gut dann verstehe ich dich besser.",
+    ],
+    error: [
+      "Hoppla da ist gerade etwas schiefgelaufen. Ich probiere das gleich noch einmal.",
+      "Hoppla das hat bei mir nicht geklappt. Kein Problem wir versuchen es gleich noch einmal.",
+    ],
+  };
+  return pickRandom(texts[reason] ?? texts["error"] ?? []);
 }
 
 /**
@@ -333,7 +347,7 @@ async function runVerify(
     await speak(
       guild,
       verifyChannelId,
-      cfg.message.replace(/\{user\}/g, name),
+        pickVariant(cfg.message).replace(/\{user\}/g, name),
       cfg.voice,
       member.id,
       signal,
@@ -348,7 +362,11 @@ async function runVerify(
         await speak(
           guild,
           verifyChannelId,
-          "Kein Problem wir machen es einfach noch einmal.",
+          pickRandom([
+            "Kein Problem wir machen es einfach noch einmal.",
+            "Alles gut wir probieren es einfach noch einmal.",
+            "Kein Stress das machen wir gleich noch einmal.",
+          ]),
           cfg.voice,
           member.id,
           signal,
@@ -360,7 +378,7 @@ async function runVerify(
       await speak(
         guild,
         verifyChannelId,
-        cfg.speakNowMessage.replace(/\{user\}/g, name),
+        pickVariant(cfg.speakNowMessage).replace(/\{user\}/g, name),
         cfg.voice,
         member.id,
         signal,
@@ -404,7 +422,7 @@ const problem = describeMicProblem(result.reason ?? "error");
         guild,
         verifyChannelId,
         isLast
-          ? `${problem} ${cfg.micFailedMessage.replace(/\{user\}/g, name)}`
+          ? `${problem} ${pickVariant(cfg.micFailedMessage).replace(/\{user\}/g, name)}`
           : problem,
         cfg.voice,
         member.id,
@@ -417,7 +435,7 @@ const problem = describeMicProblem(result.reason ?? "error");
       await speak(
         guild,
         verifyChannelId,
-        cfg.micPassedMessage.replace(/\{user\}/g, name),
+        pickVariant(cfg.micPassedMessage).replace(/\{user\}/g, name),
         cfg.voice,
         member.id,
         signal,
@@ -459,8 +477,14 @@ const problem = describeMicProblem(result.reason ?? "error");
       await speak(
         guild,
         verifyChannelId,
-        `Mach dir keinen Kopf. Komm in ${seconds} Sekunden noch einmal in den Warteraum ` +
-          `dann machen wir es zusammen noch einmal.`,
+        pickRandom([
+          `Mach dir keinen Kopf. Komm in ${seconds} Sekunden noch einmal in den Warteraum ` +
+            `dann machen wir es zusammen noch einmal.`,
+          `Kein Problem so was passiert. Komm in ${seconds} Sekunden noch einmal vorbei ` +
+            `dann sehen wir weiter.`,
+          `Schade aber kein Beinbruch. Komm in ${seconds} Sekunden noch einmal vorbei ` +
+            `dann starten wir neu.`,
+        ]),
         cfg.voice,
         member.id,
         signal,

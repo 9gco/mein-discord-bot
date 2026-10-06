@@ -18,6 +18,7 @@ import {
   getCachedVerifyConfig,
   getVerifyConfig,
   playBuffers,
+  pickVariant,
   runExclusive,
   saveVerifyConfig,
   VERIFY_VOICES,
@@ -195,7 +196,7 @@ const command: {
         .addLabelComponents(
           new LabelBuilder()
             .setLabel("Text")
-            .setDescription("{user} wird durch den Namen ersetzt.")
+            .setDescription("{user} wird durch den Namen ersetzt. Varianten trennst du mit ---.")
             .setTextInputComponent(
               new TextInputBuilder()
                 .setCustomId("message")
@@ -221,7 +222,7 @@ const command: {
           new LabelBuilder()
             .setLabel("Text")
             .setDescription(
-              "Wird gesprochen danach wird das Sprechrecht freigeschaltet.",
+              "Wird gesprochen danach wird das Sprechrecht freigeschaltet. Varianten trennst du mit ---.",
             )
             .setTextInputComponent(
               new TextInputBuilder()
@@ -319,7 +320,10 @@ const command: {
           });
           return;
         }
-        const text = cfg.message.replace(/\{user\}/g, interaction.user.displayName);
+        const text = pickVariant(cfg.message).replace(
+          /\{user\}/g,
+          interaction.user.displayName,
+        );
         let buffers: Buffer[];
         try {
           buffers = await fetchTtsChunks(text, cfg.voice);

@@ -112,29 +112,56 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
  *    oder "guck" kommt als Kauderwelsch heraus, und ein Imperativ wie "Red
  *    ein paar Sätze" sieht für die Stimme aus wie das englische Wort. Im
  *    Zweifel das Wort nehmen, das man auch so schreibt wie man es hört.
+ * 8. Jeder Text in mehreren Varianten, getrennt durch `---`. Ein Mensch sagt
+ *    dieselbe Ansage nie zweimal wörtlich gleich – wer dreimal scheitert soll
+ *    auch dreimal etwas anderes hören. Siehe `VARIANT_SEPARATOR`.
  */
+/**
+ * Trenner zwischen zwei Varianten desselben Textes. Bei jeder Ansage wird
+ * zufällig eine ausgewählt – wer mehrfach scheitert soll nicht immer denselben
+ * Satz hören. Texte ohne Trenner bleiben unverändert.
+ */
+export const VARIANT_SEPARATOR = "\n---\n";
+
+/** Zufälliger Eintrag aus einer Liste. */
+export function pickRandom(options: readonly string[]): string {
+  const index = Math.floor(Math.random() * options.length);
+  return options[index] ?? options[0] ?? "";
+}
+
+/** Wählt eine der durch `VARIANT_SEPARATOR` getrennten Varianten. */
+export function pickVariant(text: string): string {
+  if (!text.includes(VARIANT_SEPARATOR)) return text;
+  return pickRandom(text.split(VARIANT_SEPARATOR).map((v) => v.trim()));
+}
+
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 8;
+const TEXTS_VERSION = 9;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
-  message:
-    "Hey {user} schön dass du da bist. " +
-    "Wir machen kurz eine Mikrofonprobe damit dich hier alle gut verstehen. " +
-    "Das dauert nur ein paar Sekunden.",
-  speakNowMessage:
-    "So {user} du bist dran. " +
-    "Sprich einfach ein paar Sätze. " +
-    "Erzähl mir wie dein Tag so war oder was dir sonst noch einfällt.",
-  micFailedMessage:
-    "Schau bitte kurz in die Discord Toninstellungen ob dein Mikrofon richtig ausgewählt ist. " +
-    "In den meisten Fällen liegt es genau daran.",
-  micPassedMessage:
-    "Top {user} das klingt bei mir klar und sauber. " +
-    "Du bist durch und hast Zugang zum Server. " +
-    "Schönen Tag dir noch.",
+  message: [
+    "Hey {user} schön dass du da bist. Wir machen kurz eine Mikrofonprobe damit dich hier alle gut verstehen. Das dauert nur ein paar Sekunden.",
+    "Hallo {user} willkommen bei uns. Wir hören uns kurz an ob man dich gut versteht. Das sind höchstens ein paar Sekunden.",
+    "Hi {user} gut dass du da bist. Erst kurz die Mikrofonprobe dann bist du wieder frei.",
+  ].join(VARIANT_SEPARATOR),
+  speakNowMessage: [
+    "So {user} du bist dran. Sprich einfach ein paar Sätze. Erzähl mir wie dein Tag so war oder was dir sonst noch einfällt.",
+    "{user} du bist an der Reihe. Ein paar Sätze über dich oder über irgendwas das dir gerade durch den Kopf geht.",
+    "So {user} einfach loslegen. Sprich ruhig ein bisschen was du heute so gemacht hast oder was dir sonst noch einfällt.",
+  ].join(VARIANT_SEPARATOR),
+  micFailedMessage: [
+    "Schau bitte kurz in die Discord Toninstellungen ob dein Mikrofon richtig ausgewählt ist. In den meisten Fällen liegt es genau daran.",
+    "Meist hilft es schon wenn du in den Discord Toninstellungen nachsiehst welches Mikrofon dort ausgewählt ist. Probier das mal eben.",
+    "Ein kurzer Blick in die Discord Toninstellungen reicht meist. Dort muss das richtige Mikrofon ausgewählt sein.",
+  ].join(VARIANT_SEPARATOR),
+  micPassedMessage: [
+    "Top {user} das klingt bei mir klar und sauber. Du bist durch und hast Zugang zum Server. Schönen Tag dir noch.",
+    "Sehr gut {user} dich höre ich einwandfrei. Alles klar du bist verifiziert und kannst rein. Bis gleich im Server.",
+    "Passt perfekt {user} das klingt richtig gut. Du bist fertig und hast ab jetzt Zugang. Genieß den Server.",
+  ].join(VARIANT_SEPARATOR),
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
   textsVersion: TEXTS_VERSION,
