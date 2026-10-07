@@ -105,8 +105,10 @@ export const VERIFIED_ROLE_ID = "1547675350887178240";
  * 5. Es soll klingen wie ein Mensch im Voice-Chat. Kurze alltägliche Sätze,
  *    zugehört und mitgedacht - kein Ton auf den man "das ist eine KI" denkt.
  *    Nichts davon: "Ausgezeichnet", "leider ein technischer Fehler aufgetreten",
- *    "ich höre zu". Ein Mensch sagt "Top das kommt klar an" oder "hoppla da ist
- *    etwas schiefgelaufen".
+ *    "ich höre zu", "erzähl mir wie dein Tag so war oder was dir sonst noch
+ *    einfällt" - das ist der bekannteste Chatbot-Einstieg überhaupt. Ein Mensch
+ *    sagt "Top das kommt klar an", "zähl einfach mal bis zehn" oder "hoppla da
+ *    ist etwas schiefgelaufen".
  * 6. Ohne Kommas, wie alle anderen Texte im Bot auch.
  * 7. Nur Wörter, die die Stimme sauber trifft. Umgangssprache wie "ruckzuck"
  *    oder "guck" kommt als Kauderwelsch heraus, und ein Imperativ wie "Red
@@ -136,31 +138,31 @@ export function pickVariant(text: string): string {
 }
 
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 9;
+const TEXTS_VERSION = 10;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
   message: [
-    "Hey {user} schön dass du da bist. Wir machen kurz eine Mikrofonprobe damit dich hier alle gut verstehen. Das dauert nur ein paar Sekunden.",
-    "Hallo {user} willkommen bei uns. Wir hören uns kurz an ob man dich gut versteht. Das sind höchstens ein paar Sekunden.",
-    "Hi {user} gut dass du da bist. Erst kurz die Mikrofonprobe dann bist du wieder frei.",
+    "Hey {user} schön dass du da bist. Kurze Mikrofonprobe damit dich alle gut verstehen. Danach bist du schon durch.",
+    "Hallo {user} willkommen. Wir machen nur ganz kurz die Mikrofonprobe dann hast du deine Freigabe.",
+    "So {user} gut dass du da bist. Ein paar Wörter ins Mikro und dann ist alles erledigt.",
   ].join(VARIANT_SEPARATOR),
   speakNowMessage: [
-    "So {user} du bist dran. Sprich einfach ein paar Sätze. Erzähl mir wie dein Tag so war oder was dir sonst noch einfällt.",
-    "{user} du bist an der Reihe. Ein paar Sätze über dich oder über irgendwas das dir gerade durch den Kopf geht.",
-    "So {user} einfach loslegen. Sprich ruhig ein bisschen was du heute so gemacht hast oder was dir sonst noch einfällt.",
+    "So {user} du bist dran. Zähl einfach mal laut bis zehn damit ich dich höre.",
+    "{user} nimm dir ruhig Zeit. Sag einfach etwas in dein Mikro egal worum es geht.",
+    "So {user} los geht es. Ein paar Sätze reichen schon dann können wir weiter machen.",
   ].join(VARIANT_SEPARATOR),
   micFailedMessage: [
-    "Schau bitte kurz in die Discord Toninstellungen ob dein Mikrofon richtig ausgewählt ist. In den meisten Fällen liegt es genau daran.",
-    "Meist hilft es schon wenn du in den Discord Toninstellungen nachsiehst welches Mikrofon dort ausgewählt ist. Probier das mal eben.",
-    "Ein kurzer Blick in die Discord Toninstellungen reicht meist. Dort muss das richtige Mikrofon ausgewählt sein.",
+    "Schau kurz in die Discord Einstellungen welches Mikrofon dort ausgewählt ist. Meist liegt es genau daran. Danach versuchen wir es noch einmal.",
+    "Kleiner Tipp: In den Discord Einstellungen unter Ton sollte dein Mikrofon ausgewählt sein. Ist das erledigt versuchen wir es einfach noch einmal.",
+    "Bei dir kam gerade nichts an. Schau in Discord unter Ton ob das richtige Mikrofon ausgewählt ist dann machen wir hier weiter.",
   ].join(VARIANT_SEPARATOR),
   micPassedMessage: [
-    "Top {user} das klingt bei mir klar und sauber. Du bist durch und hast Zugang zum Server. Schönen Tag dir noch.",
-    "Sehr gut {user} dich höre ich einwandfrei. Alles klar du bist verifiziert und kannst rein. Bis gleich im Server.",
-    "Passt perfekt {user} das klingt richtig gut. Du bist fertig und hast ab jetzt Zugang. Genieß den Server.",
+    "Perfekt {user} dich höre ich glasklar. Damit bist du freigeschaltet. Willkommen im Spiel und viel Spaß.",
+    "Super {user} jetzt kommt alles sauber an. Du hast es geschafft und bist durch. Willkommen auf dem Server.",
+    "Sehr gut {user} so hört sich das gut an. Du bist verifiziert und kannst loslegen. Bis gleich im Spiel.",
   ].join(VARIANT_SEPARATOR),
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
