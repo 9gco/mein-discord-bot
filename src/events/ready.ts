@@ -5,7 +5,9 @@ import {
   connectToVerifyChannel,
   getVerifyConfig,
 } from "../utils/verify.js";
-import { resumeVerifyQueue } from "./voiceStateUpdate.js";
+import { resumeVerifyQueue, activeVerifyCount } from "./voiceStateUpdate.js";
+import { totalWaitingCount } from "../utils/verify.js";
+
 import type { BotEvent } from "./index.js";
 
 /** Lässt den Bot dauerhaft in alle aktiven Verify-Kanäle beitreten. */
@@ -35,27 +37,25 @@ async function autoJoinVerifyChannels(client: Client<true>): Promise<void> {
 }
 
 /**
- * Statuszeile unter dem Botnamen. Die Texte drehen alle `STATUS_WECHSEL_MS`
- * Millisekunden – so ist immer zu sehen, dass das Verify-System läuft.
+ * Statuszeile unter dem Botnamen. Die Texte wechseln alle `STATUS_WECHSEL_MS`
+ * Millisekunden und enthalten live die Anzahl der Wartenden bzw. der gerade
+ * laufenden Prüfungen.
  */
-const STATUS_TEXTE = [
-  "In der Warteschlange",
-  "Prüfe neue Mitglieder",
-  "Wartezeit",
-];
-const STATUS_WECHSEL_MS = 30_000;
+const STATUS_WECHSEL_MS = 10_000;
 
 function setBotStatus(client: Client<true>): void {
   let index = 0;
 
   const anzeigen = (): void => {
+    const texte = [
+      `Warteschlange: ${totalWaitingCount()}`,
+      `In Prüfung: ${activeVerifyCount()}`,
+    ];
     void client.user.setPresence({
       status: "online",
-      activities: [
-        { type: ActivityType.Custom, name: STATUS_TEXTE[index] ?? "" },
-      ],
+      activities: [{ type: ActivityType.Custom, name: texte[index] ?? "" }],
     });
-    index = (index + 1) % STATUS_TEXTE.length;
+    index = (index + 1) % texte.length;
   };
 
   anzeigen();

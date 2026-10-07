@@ -43,6 +43,14 @@ import type { BotEvent } from "./index.js";
 
 /** Mitglieder, die gerade geprüft werden – verhindert Doppel-Starts. */
 const busy = new Set<string>();
+
+/**
+ * Anzahl der gerade laufenden Verifizierungen über alle Server – für die
+ * Statuszeile des Bots.
+ */
+export function activeVerifyCount(): number {
+  return busy.size;
+}
 /** Pro Guild: läuft bereits eine Prüfung? */
 const activeGuild = new Map<string, string>();
 /**

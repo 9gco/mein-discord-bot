@@ -1354,6 +1354,15 @@ export function enqueueWaiting(
 }
 
 /**
+ * Gesamtzahl der Wartenden über alle Server – für die Statuszeile des Bots.
+ */
+export function totalWaitingCount(): number {
+  let sum = 0;
+  for (const list of waitingOrder.values()) sum += list.length;
+  return sum;
+}
+
+/**
  * Entfernt ein Mitglied aus der Warteschlange. Gibt zurück, ob es drin war.
  * Die Nummern der übrigen Wartenden verschieben sich dadurch – wer danach
  * `renumberWaiting` aufruft, bekommt wieder lückenlose Zahlen.
