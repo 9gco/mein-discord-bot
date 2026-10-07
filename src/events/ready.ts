@@ -1,4 +1,4 @@
-import { Events, type Client } from "discord.js";
+import { ActivityType, Events, type Client } from "discord.js";
 import { loadConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
 import {
@@ -34,6 +34,34 @@ async function autoJoinVerifyChannels(client: Client<true>): Promise<void> {
   }
 }
 
+/**
+ * Statuszeile unter dem Botnamen. Die Texte drehen alle `STATUS_WECHSEL_MS`
+ * Millisekunden – so ist immer zu sehen, dass das Verify-System läuft.
+ */
+const STATUS_TEXTE = [
+  "In der Warteschlange",
+  "Prüfe neue Mitglieder",
+  "/verify",
+];
+const STATUS_WECHSEL_MS = 30_000;
+
+function setBotStatus(client: Client<true>): void {
+  let index = 0;
+
+  const anzeigen = (): void => {
+    void client.user.setPresence({
+      status: "online",
+      activities: [
+        { type: ActivityType.Custom, name: STATUS_TEXTE[index] ?? "" },
+      ],
+    });
+    index = (index + 1) % STATUS_TEXTE.length;
+  };
+
+  anzeigen();
+  setInterval(anzeigen, STATUS_WECHSEL_MS).unref();
+}
+
 const event: BotEvent<Events.ClientReady> = {
   name: Events.ClientReady,
   once: true,
@@ -45,6 +73,7 @@ async execute(client: Client<true>): Promise<void> {
       dataDir: storage.dir,
       durableStorage: storage.durable,
     });
+    setBotStatus(client);
     // Kurz warten, bis die Guilds/Kanäle geladen sind, dann beitreten und
     // eventuell noch wartende Mitglieder wieder aufnehmen.
     setImmediate(() => {
