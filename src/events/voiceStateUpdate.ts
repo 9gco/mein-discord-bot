@@ -20,9 +20,10 @@ import {
   isWaiting,
   logVerifyPermissions,
   peekFirstEligible,
-  pickRandom,
+pickRandom,
   pickVariant,
   playBuffers,
+  queueWaitMs,
   renumberWaiting,
   runExclusive,
   runMicCheck,
@@ -39,6 +40,7 @@ import {
   type VerifyConfig,
   VERIFIED_ROLE_ID,
 } from "../utils/verify.js";
+import { formatDuration, logVerifyEvent } from "../utils/verifyLog.js";
 import type { BotEvent } from "./index.js";
 
 /** Mitglieder, die gerade geprüft werden – verhindert Doppel-Starts. */
@@ -255,6 +257,22 @@ function describeMicProblem(reason: MicCheckReason): string {
   return pickRandom(texts[reason] ?? texts["error"] ?? []);
 }
 
+/** Kurzbezeichnung eines Messergebnisses, z. B. fürs Log. */
+const REASON_LABELS: Record<MicCheckReason, string> = {
+  no_speech: "kein Ton",
+  too_short: "zu kurz gesprochen",
+  too_quiet: "zu leise",
+  clipping: "übersteuert",
+  noisy: "verrauscht",
+  aborted: "abgebrochen",
+  error: "Fehler",
+};
+
+/** Menschliche Sprechdauer aus Millisekunden, z. B. "3,2 s". */
+function formatSpeech(ms: number): string {
+  return `${(Math.max(0, ms) / 1000).toFixed(1).replace(".", ",")} s`;
+}
+
 /**
  * Vollständiger Prüf-Durchlauf für ein Mitglied:
  * in den Prüf-Kanal ziehen → Ansage → Mikrofon-Check (bis zu
@@ -305,6 +323,14 @@ async function runVerify(
         },
       );
       await releaseQueueSlot(guild, member);
+      await logVerifyEvent(guild, {
+        title: "Move fehlgeschlagen",
+        member,
+        lines: [
+          "Der Bot braucht 'Move Members' und im Prüf-Kanal muss 'Senden' " +
+            "für @everyone erlaubt sein.",
+        ],
+      });
       return;
     }
   }
@@ -333,6 +359,13 @@ async function runVerify(
       channelId: verifyChannelId,
     });
     await releaseQueueSlot(guild, member);
+    await logVerifyEvent(guild, {
+      title: "Nicht angekommen",
+      member,
+      lines: [
+        `War nach ${Math.round(MEMBER_JOIN_TIMEOUT_MS / 1000)} sek nicht im Prüf-Kanal`,
+      ],
+    });
     return;
   }
 
@@ -364,8 +397,11 @@ async function runVerify(
     // 6) Mehrere Versuche direkt nacheinander. Die meisten Fehler sind
     //    Einstellungsprobleme, die sich sofort korrigieren lassen.
     let lastResult: MicCheckResult | undefined;
+    let usedAttempts = 0;
+    const attemptReasons: string[] = [];
 
     for (let attempt = 1; attempt <= MIC_MAX_ATTEMPTS; attempt++) {
+      usedAttempts = attempt;
       if (attempt > 1) {
         await speak(
           guild,
@@ -421,6 +457,8 @@ async function runVerify(
         break;
       }
 
+      attemptReasons.push(REASON_LABELS[result.reason ?? "error"] ?? result.reason);
+
       // Grund nennen, aber erst nach dem letzten Versuch die Zusatzanweisung.
       // reason ist nur gesetzt, wenn die Prüfung gescheitert ist. Fehlt er, ist
 // etwas Unerwartetes passiert - dann passt die technische Floskel.
@@ -452,6 +490,19 @@ const problem = describeMicProblem(result.reason ?? "error");
       await grantVerifyRoles(guild, member, cfg.roles);
       clearCooldown(guild.id, member.id);
 
+      await logVerifyEvent(guild, {
+        title: "Verifiziert",
+        member,
+        lines: [
+          `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
+          `Versuche: ${usedAttempts}`,
+          lastResult
+            ? `${REASON_LABELS[lastResult.reason ?? "error"]} · ` +
+              `${formatSpeech(lastResult.speechMs)} Sprechzeit`
+            : "",
+        ].filter((line) => line.length > 0),
+      });
+
       // Danach wird das Mitglied aus dem Call geholt, ohne weitere Ansage.
       // Die Erfolgsansage trägt den Abschluss bereits: sie nennt das Ergebnis
       // und den Zugang zum Server. Eine zweite Ansage direkt danach wiederholt
@@ -469,6 +520,15 @@ const problem = describeMicProblem(result.reason ?? "error");
         userId: member.id,
         reason: lastResult?.reason,
         cooldownMs: MIC_COOLDOWN_MS,
+      });
+      await logVerifyEvent(guild, {
+        title: "Fehlgeschlagen",
+        member,
+        lines: [
+          `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
+          `Versuche: ${usedAttempts} (${attemptReasons.join(", ")})`,
+          `Nächster Versuch in ${seconds} sek`,
+        ],
       });
       // Wecker, damit die Schlange weiterläuft, sobald die Zeit abgelaufen
       // ist – VoiceStateUpdate feuert dafür nicht.
@@ -506,11 +566,24 @@ const problem = describeMicProblem(result.reason ?? "error");
         userId: member.id,
         reason: err.message,
       });
+      await logVerifyEvent(guild, {
+        title: "Abgebrochen",
+        member,
+        lines: [
+          err.message,
+          `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
+        ],
+      });
     } else {
       logger.error("Prüf-Durchlauf fehlgeschlagen.", {
         guildId: guild.id,
         userId: member.id,
         error: err,
+      });
+      await logVerifyEvent(guild, {
+        title: "Fehler im Ablauf",
+        member,
+        lines: [err instanceof Error ? err.message : String(err)],
       });
     }
   } finally {
@@ -756,6 +829,11 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
         guildId: guild.id,
         userId: member.id,
         position,
+      });
+      await logVerifyEvent(guild, {
+        title: "In der Warteschlange",
+        member,
+        lines: [`Platz ${position}`],
       });
       startNextIfIdle(guild, cfg);
       return;

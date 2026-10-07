@@ -62,6 +62,8 @@ export interface VerifyConfig {
 export const WAITING_CHANNEL_ID = "1547675527844864020";
 /** Kanal, in dem Ansage und Mikrofon-Check laufen. */
 export const VERIFY_CHANNEL_ID = "1547676303149244508";
+/** Kanal, in dem jeder Verify-Vorgang als Logeintrag landet. */
+export const VERIFY_LOG_CHANNEL_ID = "1547675684569088123";
 
 /**
  * Kurze Schonzeit, nachdem das Mitglied im Prüf-Kanal angekommen ist. Ohne sie
@@ -138,31 +140,31 @@ export function pickVariant(text: string): string {
 }
 
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 10;
+const TEXTS_VERSION = 11;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
   message: [
-    "Hey {user} schön dass du da bist. Kurze Mikrofonprobe damit dich alle gut verstehen. Danach bist du schon durch.",
-    "Hallo {user} willkommen. Wir machen nur ganz kurz die Mikrofonprobe dann hast du deine Freigabe.",
-    "So {user} gut dass du da bist. Ein paar Wörter ins Mikro und dann ist alles erledigt.",
+    "Hey {user} schön dass du da bist. Alles klar dann los: Erst die Mikrofonprobe damit uns alle verstehen.",
+    "Hallo {user} willkommen. Ganz kurz den Ton prüfen dann bist du durch und kannst los.",
+    "So {user} gut dass du da bist. Kleine Sache noch: Ein paar Wörter ins Mikro und du bist fertig.",
   ].join(VARIANT_SEPARATOR),
   speakNowMessage: [
-    "So {user} du bist dran. Zähl einfach mal laut bis zehn damit ich dich höre.",
-    "{user} nimm dir ruhig Zeit. Sag einfach etwas in dein Mikro egal worum es geht.",
-    "So {user} los geht es. Ein paar Sätze reichen schon dann können wir weiter machen.",
+    "So {user} jetzt bist du dran. Sag mir irgendwas auch wenn es dir gerade nichts einfällt.",
+    "{user} du bist jetzt dran. Zähl einfach bis zehn damit ich weiß dass alles funktioniert.",
+    "So {user} los geht es. Mir reicht es wenn du irgendwas sagst dann sind wir durch.",
   ].join(VARIANT_SEPARATOR),
   micFailedMessage: [
-    "Schau kurz in die Discord Einstellungen welches Mikrofon dort ausgewählt ist. Meist liegt es genau daran. Danach versuchen wir es noch einmal.",
-    "Kleiner Tipp: In den Discord Einstellungen unter Ton sollte dein Mikrofon ausgewählt sein. Ist das erledigt versuchen wir es einfach noch einmal.",
-    "Bei dir kam gerade nichts an. Schau in Discord unter Ton ob das richtige Mikrofon ausgewählt ist dann machen wir hier weiter.",
+    "Hörst du mich? Gut. Von dir kommt gerade aber nichts an. Schau mal ob dein Mikro stumm ist danach versuchen wir es noch einmal.",
+    "Bei dir ist gerade nichts zu hören. Meist ist in den Discord Einstellungen das falsche Mikrofon ausgewählt. Danach klappt es bestimmt.",
+    "Von dir kommt gerade nichts an. Prüf in Discord unter Ton ob dein Mikrofon ausgewählt ist dann klappt der nächste Versuch.",
   ].join(VARIANT_SEPARATOR),
   micPassedMessage: [
-    "Perfekt {user} dich höre ich glasklar. Damit bist du freigeschaltet. Willkommen im Spiel und viel Spaß.",
-    "Super {user} jetzt kommt alles sauber an. Du hast es geschafft und bist durch. Willkommen auf dem Server.",
-    "Sehr gut {user} so hört sich das gut an. Du bist verifiziert und kannst loslegen. Bis gleich im Spiel.",
+    "Perfekt {user} jetzt kommt alles klar durch. Damit bist du drin. Willkommen im Spiel und viel Spaß.",
+    "Super {user} so klingt alles gut. Du hast es geschafft und bist freigeschaltet. Willkommen bei uns.",
+    "Sehr gut {user} das passt. Du bist verifiziert und kannst loslegen. Wir sehen uns im Spiel.",
   ].join(VARIANT_SEPARATOR),
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
@@ -1330,6 +1332,8 @@ interface QueueEntry {
 const waitingOrder = new Map<string, string[]>();
 /** "guildId:userId" → Wartende mit Namen. */
 const waitingEntries = new Map<string, QueueEntry>();
+/** "guildId:userId" → Zeitpunkt des Einreihens (für die Log-Dauer). */
+const joinedAt = new Map<string, number>();
 
 function entryKey(guildId: string, userId: string): string {
   return `${guildId}:${userId}`;
@@ -1348,11 +1352,23 @@ export function enqueueWaiting(
   const key = entryKey(guildId, userId);
   if (!waitingEntries.has(key)) {
     waitingEntries.set(key, { userId, originalNick, originalName });
+    joinedAt.set(key, Date.now());
   }
   const list = waitingOrder.get(guildId) ?? [];
   if (!list.includes(userId)) list.push(userId);
   waitingOrder.set(guildId, list);
   return list.indexOf(userId) + 1;
+}
+
+/**
+ * Wie lange das Mitglied schon in der Warteschlange steht, in Millisekunden.
+ * 0, wenn es nie eingereiht war (z. B. nach einem Neustart).
+ */
+export function queueWaitMs(guildId: string, userId: string): number {
+  const start = joinedAt.get(entryKey(guildId, userId));
+  if (start === undefined) return 0;
+  const waited = Date.now() - start;
+  return waited > 0 ? waited : 0;
 }
 
 /**
@@ -1373,6 +1389,7 @@ export function dequeueWaiting(guildId: string, userId: string): boolean {
   const key = entryKey(guildId, userId);
   const list = waitingOrder.get(guildId);
   waitingEntries.delete(key);
+  joinedAt.delete(key);
   if (!list) return false;
   const position = list.indexOf(userId);
   if (position === -1) return false;
