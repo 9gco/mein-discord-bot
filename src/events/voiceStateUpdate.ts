@@ -230,28 +230,28 @@ async function grantVerifyRoles(
 function describeMicProblem(reason: MicCheckReason): string {
   const texts: Partial<Record<MicCheckReason, readonly string[]>> = {
     no_speech: [
-      "Bei dir kommt gerade gar nichts an. Ist dein Mikrofon vielleicht auf stumm?",
-      "Ich höre von dir nichts. Schau mal ob dein Mikrofon stumm ist oder ob da noch nichts angeschlossen ist.",
+      "Bei dir kommt gerade gar nichts an. Ist dein Mikrofon vielleicht stumm geschaltet?",
+      "Ich höre dich gerade nicht. Schau bitte nach ob dein Mikrofon stumm ist oder ob es richtig angeschlossen ist.",
     ],
     too_short: [
-      "Das war gerade ein bisschen kurz. Sprich ruhig noch ein paar Sekunden weiter du hast ja Zeit.",
-      "Noch zu kurz für mich. Sprich einfach noch ein bisschen dann hab ich genug gehört.",
+      "Das war gerade etwas zu kurz. Sprich ruhig noch ein paar Sekunden weiter. Du hast genug Zeit.",
+      "Noch ein bisschen zu kurz für mich. Sprich einfach noch etwas länger dann kann ich dich besser beurteilen.",
     ],
     clipping: [
-      "Das war etwas laut und die Stimme hat übersteuert. Geh ein Stück vom Mikrofon weg oder mach den Pegel etwas kleiner.",
-      "Es war gut gemeint aber zu laut. Etwas weiter weg vom Mikrofon oder leiser stellen dann passt es.",
+      "Das war etwas zu laut und die Stimme klingt verzerrt. Geh ein Stück vom Mikrofon weg oder stelle den Pegel etwas niedriger ein.",
+      "Es war gut gemeint aber zu laut. Geh etwas weiter weg vom Mikrofon oder stelle die Lautstärke etwas leiser.",
     ],
     noisy: [
-      "Im Hintergrund läuft bei dir ziemlich viel. Ein ruhigerer Raum hilft da schon viel dann versteht man dich gleich besser.",
-      "Von dir höre ich gerade viel vom Raum. Wechsel doch kurz an einen ruhigeren Ort dann klingt alles viel besser.",
+      "Im Hintergrund höre ich bei dir ziemlich viel. Ein ruhigerer Raum hilft oft schon. Dann verstehe ich dich gleich viel besser.",
+      "Bei dir läuft gerade viel im Hintergrund. Wechsle am besten kurz an einen ruhigeren Ort dann hört sich alles viel besser an.",
     ],
     too_quiet: [
-      "Das kommt bei mir sehr leise an. Mach die Eingabelautstärke etwas höher dann passt das.",
-      "Zu leise für mich. Ein Tick lauter ist gut dann verstehe ich dich.",
+      "Das kommt bei mir sehr leise an. Stelle die Eingabelautstärke etwas höher dann passt das.",
+      "Zu leise für mich. Sprich etwas lauter oder stelle die Lautstärke höher dann verstehe ich dich gut.",
     ],
     error: [
-      "Hoppla da ist gerade was schiefgelaufen. Wir versuchen es gleich noch einmal.",
-      "Da hatte ich gerade einen kleinen Aussetzer. Einfach noch einmal dann läuft es.",
+      "Hoppla da ist gerade etwas schiefgelaufen. Wir versuchen es gleich noch einmal.",
+      "Da hatte ich gerade einen kleinen Aussetzer. Einfach noch einmal dann wird es schon klappen.",
     ],
   };
   return pickRandom(texts[reason] ?? texts["error"] ?? []);
@@ -417,9 +417,9 @@ async function runVerify(
           guild,
           verifyChannelId,
           pickRandom([
-            "Das hat gerade noch nicht geklappt. Wir machen einfach noch einen Versuch.",
-            "Macht nichts wir versuchen es gleich noch einmal. Beim zweiten Mal klappt es meist besser.",
-            "Noch einmal mit Gefühl. Einfach wieder ein paar Wörter ins Mikro.",
+            "Das hat noch nicht ganz geklappt. Wir versuchen es einfach noch einmal.",
+            "Kein Problem wir probieren es noch einmal. Oft klappt es beim zweiten Versuch.",
+            "Noch einmal mit Gefühl. Sprich einfach wieder ein paar Wörter ins Mikro.",
           ]),
           cfg.voice,
           member.id,
@@ -506,10 +506,7 @@ const problem = describeMicProblem(result.reason ?? "error");
         lines: [
           `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
           `Versuche: ${usedAttempts}`,
-          lastResult
-            ? `${REASON_LABELS[lastResult.reason ?? "error"]} · ` +
-              `${formatSpeech(lastResult.speechMs)} Sprechzeit`
-            : "",
+          lastResult ? `Mikrofon ok · ${formatSpeech(lastResult.speechMs)} Sprechzeit` : "",
         ].filter((line) => line.length > 0),
       });
 
@@ -556,12 +553,12 @@ const problem = describeMicProblem(result.reason ?? "error");
         guild,
         verifyChannelId,
         pickRandom([
-          `Mach dir keinen Kopf. Komm in ${seconds} Sekunden einfach noch einmal in den Warteraum ` +
-            `dann machen wir es zusammen noch einmal.`,
-          `So was passiert. Komm in ${seconds} Sekunden noch einmal vorbei ` +
-            `dann schauen wir einfach weiter.`,
-          `Nicht schlimm. In ${seconds} Sekunden bist du wieder dran ` +
-            `komm dann einfach noch einmal vorbei.`,
+          `Mach dir keinen Kopf. Komm in ${seconds} Sekunden noch einmal in den Warteraum ` +
+            `dann versuchen wir es zusammen noch einmal.`,
+          `Das ist gar nicht schlimm. Komm in ${seconds} Sekunden noch einmal vorbei ` +
+            `dann machen wir weiter.`,
+          `Kein Grund zur Sorge. In ${seconds} Sekunden kannst du es noch einmal versuchen. ` +
+            `Komm dann einfach wieder in den Warteraum.`,
         ]),
         cfg.voice,
         member.id,
