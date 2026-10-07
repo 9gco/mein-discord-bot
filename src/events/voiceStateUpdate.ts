@@ -40,7 +40,7 @@ pickRandom,
   type VerifyConfig,
   VERIFIED_ROLE_ID,
 } from "../utils/verify.js";
-import { formatDuration, logVerifyEvent } from "../utils/verifyLog.js";
+import { formatDuration, startVerifyLog, finishVerifyLog, LOG_COLORS } from "../utils/verifyLog.js";
 import type { BotEvent } from "./index.js";
 
 /** Mitglieder, die gerade geprüft werden – verhindert Doppel-Starts. */
@@ -230,28 +230,28 @@ async function grantVerifyRoles(
 function describeMicProblem(reason: MicCheckReason): string {
   const texts: Partial<Record<MicCheckReason, readonly string[]>> = {
     no_speech: [
-      "Ich höre bei dir gar nichts. Ist dein Mikrofon vielleicht stumm geschaltet?",
-      "Bei mir kommt kein Ton an. Schau kurz ob dein Mikrofon stumm ist oder nicht angeschlossen.",
+      "Bei dir kommt gerade gar nichts an. Ist dein Mikrofon vielleicht auf stumm?",
+      "Ich höre von dir nichts. Schau mal ob dein Mikrofon stumm ist oder ob da noch nichts angeschlossen ist.",
     ],
     too_short: [
-      "Das war gerade ziemlich kurz. Nimm dir ruhig ein bisschen Zeit und sprich noch ein paar Sekunden weiter.",
-      "Zu kurz für mich. Sprich ruhig ein bisschen länger dann kann ich dich besser einschätzen.",
+      "Das war gerade ein bisschen kurz. Sprich ruhig noch ein paar Sekunden weiter du hast ja Zeit.",
+      "Noch zu kurz für mich. Sprich einfach noch ein bisschen dann hab ich genug gehört.",
     ],
     clipping: [
-      "Achtung das war zu laut und die Stimme ist verzerrt. Geh bitte ein Stück vom Mikrofon weg oder dreh den Pegel ein wenig runter.",
-      "Das war leider zu laut die Stimme bricht dabei. Geh etwas weiter vom Mikrofon weg oder dreh den Pegel runter.",
+      "Das war etwas laut und die Stimme hat übersteuert. Geh ein Stück vom Mikrofon weg oder mach den Pegel etwas kleiner.",
+      "Es war gut gemeint aber zu laut. Etwas weiter weg vom Mikrofon oder leiser stellen dann passt es.",
     ],
     noisy: [
-      "Da höre ich ziemlich viel im Hintergrund. Zieh am besten kurz in einen ruhigeren Raum dann klingt das gleich viel besser.",
-      "Im Hintergrund läuft ziemlich viel. Wenn du kurz in einen ruhigeren Ort wechselst hört sich das gleich viel besser an.",
+      "Im Hintergrund läuft bei dir ziemlich viel. Ein ruhigerer Raum hilft da schon viel dann versteht man dich gleich besser.",
+      "Von dir höre ich gerade viel vom Raum. Wechsel doch kurz an einen ruhigeren Ort dann klingt alles viel besser.",
     ],
     too_quiet: [
-      "Bei mir kommt das sehr leise an. Dreh bitte die Eingabelautstärke ein wenig höher dann passt das.",
-      "Das kommt sehr leise bei mir an. Ein bisschen lauter wäre gut dann verstehe ich dich besser.",
+      "Das kommt bei mir sehr leise an. Mach die Eingabelautstärke etwas höher dann passt das.",
+      "Zu leise für mich. Ein Tick lauter ist gut dann verstehe ich dich.",
     ],
     error: [
-      "Hoppla da ist gerade etwas schiefgelaufen. Ich probiere das gleich noch einmal.",
-      "Hoppla das hat bei mir nicht geklappt. Kein Problem wir versuchen es gleich noch einmal.",
+      "Hoppla da ist gerade was schiefgelaufen. Wir versuchen es gleich noch einmal.",
+      "Da hatte ich gerade einen kleinen Aussetzer. Einfach noch einmal dann läuft es.",
     ],
   };
   return pickRandom(texts[reason] ?? texts["error"] ?? []);
@@ -322,15 +322,16 @@ async function runVerify(
           error: err,
         },
       );
-      await releaseQueueSlot(guild, member);
-      await logVerifyEvent(guild, {
+      await finishVerifyLog(guild, member, {
         title: "Move fehlgeschlagen",
-        member,
+        color: LOG_COLORS.off,
         lines: [
+          `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
           "Der Bot braucht 'Move Members' und im Prüf-Kanal muss 'Senden' " +
             "für @everyone erlaubt sein.",
         ],
       });
+      await releaseQueueSlot(guild, member);
       return;
     }
   }
@@ -358,14 +359,15 @@ async function runVerify(
       userId: member.id,
       channelId: verifyChannelId,
     });
-    await releaseQueueSlot(guild, member);
-    await logVerifyEvent(guild, {
+    await finishVerifyLog(guild, member, {
       title: "Nicht angekommen",
-      member,
+      color: LOG_COLORS.off,
       lines: [
+        `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
         `War nach ${Math.round(MEMBER_JOIN_TIMEOUT_MS / 1000)} sek nicht im Prüf-Kanal`,
       ],
     });
+    await releaseQueueSlot(guild, member);
     return;
   }
 
@@ -374,6 +376,14 @@ async function runVerify(
     logger.error("Konnte dem Prüf-Kanal nicht beitreten.", {
       guildId: guild.id,
       channelId: verifyChannelId,
+    });
+    await finishVerifyLog(guild, member, {
+      title: "Kein Zugang zum Prüf-Kanal",
+      color: LOG_COLORS.off,
+      lines: [
+        `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
+        "Der Bot konnte dem Prüf-Kanal nicht beitreten",
+      ],
     });
     await releaseQueueSlot(guild, member);
     return;
@@ -407,9 +417,9 @@ async function runVerify(
           guild,
           verifyChannelId,
           pickRandom([
-            "Kein Problem wir machen es einfach noch einmal.",
-            "Alles gut wir probieren es einfach noch einmal.",
-            "Kein Stress das machen wir gleich noch einmal.",
+            "Das hat gerade noch nicht geklappt. Wir machen einfach noch einen Versuch.",
+            "Macht nichts wir versuchen es gleich noch einmal. Beim zweiten Mal klappt es meist besser.",
+            "Noch einmal mit Gefühl. Einfach wieder ein paar Wörter ins Mikro.",
           ]),
           cfg.voice,
           member.id,
@@ -490,9 +500,9 @@ const problem = describeMicProblem(result.reason ?? "error");
       await grantVerifyRoles(guild, member, cfg.roles);
       clearCooldown(guild.id, member.id);
 
-      await logVerifyEvent(guild, {
+      await finishVerifyLog(guild, member, {
         title: "Verifiziert",
-        member,
+        color: LOG_COLORS.ok,
         lines: [
           `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
           `Versuche: ${usedAttempts}`,
@@ -521,9 +531,9 @@ const problem = describeMicProblem(result.reason ?? "error");
         reason: lastResult?.reason,
         cooldownMs: MIC_COOLDOWN_MS,
       });
-      await logVerifyEvent(guild, {
+      await finishVerifyLog(guild, member, {
         title: "Fehlgeschlagen",
-        member,
+        color: LOG_COLORS.fail,
         lines: [
           `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
           `Versuche: ${usedAttempts} (${attemptReasons.join(", ")})`,
@@ -546,12 +556,12 @@ const problem = describeMicProblem(result.reason ?? "error");
         guild,
         verifyChannelId,
         pickRandom([
-          `Mach dir keinen Kopf. Komm in ${seconds} Sekunden noch einmal in den Warteraum ` +
+          `Mach dir keinen Kopf. Komm in ${seconds} Sekunden einfach noch einmal in den Warteraum ` +
             `dann machen wir es zusammen noch einmal.`,
-          `Kein Problem so was passiert. Komm in ${seconds} Sekunden noch einmal vorbei ` +
-            `dann sehen wir weiter.`,
-          `Schade aber kein Beinbruch. Komm in ${seconds} Sekunden noch einmal vorbei ` +
-            `dann starten wir neu.`,
+          `So was passiert. Komm in ${seconds} Sekunden noch einmal vorbei ` +
+            `dann schauen wir einfach weiter.`,
+          `Nicht schlimm. In ${seconds} Sekunden bist du wieder dran ` +
+            `komm dann einfach noch einmal vorbei.`,
         ]),
         cfg.voice,
         member.id,
@@ -566,12 +576,12 @@ const problem = describeMicProblem(result.reason ?? "error");
         userId: member.id,
         reason: err.message,
       });
-      await logVerifyEvent(guild, {
+      await finishVerifyLog(guild, member, {
         title: "Abgebrochen",
-        member,
+        color: LOG_COLORS.off,
         lines: [
-          err.message,
           `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
+          err.message,
         ],
       });
     } else {
@@ -580,10 +590,13 @@ const problem = describeMicProblem(result.reason ?? "error");
         userId: member.id,
         error: err,
       });
-      await logVerifyEvent(guild, {
+      await finishVerifyLog(guild, member, {
         title: "Fehler im Ablauf",
-        member,
-        lines: [err instanceof Error ? err.message : String(err)],
+        color: LOG_COLORS.off,
+        lines: [
+          `Dauer in der Warteschlange: ${formatDuration(queueWaitMs(guild.id, member.id))}`,
+          err instanceof Error ? err.message : String(err),
+        ],
       });
     }
   } finally {
@@ -798,12 +811,18 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
 
     if (!newState.channelId && (leftVerify || leftWaiting || busy.has(key))) {
       const aborted = abortRun(guild.id, member.id);
-      // Ein laufender Durchlauf räumt in seinem finally selbst auf. Wer nur in der
-      // Warteschlange stand, muss hier entfernt werden.
+      // Ein laufender Durchlauf räumt in seinem finally selbst auf und schickt
+      // das Log. Wer nur in der Warteschlange stand, muss hier entfernt werden.
       if (!aborted) {
+        const wartend = queueWaitMs(guild.id, member.id);
         await stripQueueNickname(guild, member.id);
         dequeueWaiting(guild.id, member.id);
         await renumberWaiting(guild);
+        await finishVerifyLog(guild, member, {
+          title: leftVerify ? "Abgebrochen" : "Warteschlange verlassen",
+          color: LOG_COLORS.off,
+          lines: [`Dauer in der Warteschlange: ${formatDuration(wartend)}`],
+        });
       }
       logger.info("Mitglied hat den Kanal verlassen – Eintrag aufgeräumt.", {
         guildId: guild.id,
@@ -830,9 +849,8 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
         userId: member.id,
         position,
       });
-      await logVerifyEvent(guild, {
-        title: "In der Warteschlange",
-        member,
+      startVerifyLog(guild.id, member.id, member, {
+        title: "Warteschlange",
         lines: [`Platz ${position}`],
       });
       startNextIfIdle(guild, cfg);
@@ -849,6 +867,10 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
         member.displayName,
       );
       await applyQueueNickname(guild, member.id, position);
+      startVerifyLog(guild.id, member.id, member, {
+        title: "Warteschlange",
+        lines: [`Platz ${position}`],
+      });
       startNextIfIdle(guild, cfg);
       return;
     }
@@ -859,10 +881,19 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
     if (leftVerify) {
       const aborted = abortRun(guild.id, member.id);
       if (!aborted) {
+        const wartend = queueWaitMs(guild.id, member.id);
         await stripQueueNickname(guild, member.id);
         dequeueWaiting(guild.id, member.id);
+        await renumberWaiting(guild);
+        await finishVerifyLog(guild, member, {
+          title: "Abgebrochen",
+          color: LOG_COLORS.off,
+          lines: [
+            `Dauer in der Warteschlange: ${formatDuration(wartend)}`,
+            `In einen anderen Kanal gewechselt: <#${newState.channelId}>`,
+          ],
+        });
       }
-      await renumberWaiting(guild);
       logger.info("Prüfung verlassen – abgebrochen.", {
         guildId: guild.id,
         userId: member.id,
@@ -874,9 +905,15 @@ const event: BotEvent<Events.VoiceStateUpdate> = {
 
     // 4) Aus dem Warteraum in einen anderen Kanal: nicht mehr warten.
     if (leftWaiting && newState.channelId !== waitingChannelId) {
+      const wartend = queueWaitMs(guild.id, member.id);
       await stripQueueNickname(guild, member.id);
       dequeueWaiting(guild.id, member.id);
       await renumberWaiting(guild);
+      await finishVerifyLog(guild, member, {
+        title: "Warteschlange verlassen",
+        color: LOG_COLORS.off,
+        lines: [`Dauer in der Warteschlange: ${formatDuration(wartend)}`],
+      });
       logger.info("Aus der Warteschlange gegangen – Eintrag entfernt.", {
         guildId: guild.id,
         userId: member.id,

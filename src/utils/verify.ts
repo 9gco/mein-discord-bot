@@ -140,31 +140,31 @@ export function pickVariant(text: string): string {
 }
 
 /** Aktuelle Fassung der Standardtexte; siehe `textsVersion`. */
-const TEXTS_VERSION = 11;
+const TEXTS_VERSION = 12;
 
 const DEFAULT_CONFIG: VerifyConfig = {
   enabled: true,
   channelId: VERIFY_CHANNEL_ID,
   waitingChannelId: WAITING_CHANNEL_ID,
   message: [
-    "Hey {user} schön dass du da bist. Alles klar dann los: Erst die Mikrofonprobe damit uns alle verstehen.",
-    "Hallo {user} willkommen. Ganz kurz den Ton prüfen dann bist du durch und kannst los.",
-    "So {user} gut dass du da bist. Kleine Sache noch: Ein paar Wörter ins Mikro und du bist fertig.",
+    "Hey {user} schön dass du da bist. Wir machen ganz kurz die Mikrofonprobe damit dich alle verstehen.",
+    "Hallo {user} da bist du ja. Kurzer Test dann bist du auch schon durch. Alles entspannt.",
+    "So {user} gut dass du da bist. Bringen wir die Mikrofonprobe hinter uns dann hast du deine Ruhe.",
   ].join(VARIANT_SEPARATOR),
   speakNowMessage: [
-    "So {user} jetzt bist du dran. Sag mir irgendwas auch wenn es dir gerade nichts einfällt.",
-    "{user} du bist jetzt dran. Zähl einfach bis zehn damit ich weiß dass alles funktioniert.",
-    "So {user} los geht es. Mir reicht es wenn du irgendwas sagst dann sind wir durch.",
+    "So {user} jetzt bist du dran. Sag mir was auch wenn es dir gerade nichts einfällt.",
+    "{user} du hast jetzt das Wort. Einfach irgendwas ins Mikro damit ich dich hören kann.",
+    "Jetzt du {user}. Zähl mal bis zehn dann sind wir schon einen Schritt weiter.",
   ].join(VARIANT_SEPARATOR),
   micFailedMessage: [
-    "Hörst du mich? Gut. Von dir kommt gerade aber nichts an. Schau mal ob dein Mikro stumm ist danach versuchen wir es noch einmal.",
-    "Bei dir ist gerade nichts zu hören. Meist ist in den Discord Einstellungen das falsche Mikrofon ausgewählt. Danach klappt es bestimmt.",
-    "Von dir kommt gerade nichts an. Prüf in Discord unter Ton ob dein Mikrofon ausgewählt ist dann klappt der nächste Versuch.",
+    "Schau kurz in die Discord Einstellungen ob das richtige Mikrofon ausgewählt ist. Meist liegt es genau daran.",
+    "In den Discord Einstellungen unter Ton sollte dein Mikrofon stehen. Sieh am besten kurz nach dann klappt der nächste Versuch.",
+    "Tipp von mir: Ein Blick in die Discord Einstellungen hilft oft schon. Da ist dann das richtige Mikrofon zu wählen.",
   ].join(VARIANT_SEPARATOR),
   micPassedMessage: [
-    "Perfekt {user} jetzt kommt alles klar durch. Damit bist du drin. Willkommen im Spiel und viel Spaß.",
-    "Super {user} so klingt alles gut. Du hast es geschafft und bist freigeschaltet. Willkommen bei uns.",
-    "Sehr gut {user} das passt. Du bist verifiziert und kannst loslegen. Wir sehen uns im Spiel.",
+    "Perfekt {user} jetzt hört sich alles gut an. Du bist durch und hast deinen Zugang. Willkommen im Spiel und viel Spaß.",
+    "Super {user} so klingt man dich gern. Du bist fertig und freigeschaltet. Willkommen bei uns.",
+    "Sehr gut {user} das klang sauber. Du bist verifiziert und kannst loslegen. Wir sehen uns im Spiel.",
   ].join(VARIANT_SEPARATOR),
   voice: "de-DE-SeraphinaMultilingualNeural",
   roles: [],
