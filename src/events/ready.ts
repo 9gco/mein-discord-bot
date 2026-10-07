@@ -41,7 +41,7 @@ async function autoJoinVerifyChannels(client: Client<true>): Promise<void> {
 const STATUS_TEXTE = [
   "In der Warteschlange",
   "Prüfe neue Mitglieder",
-  "/verify",
+  "Wartezeit",
 ];
 const STATUS_WECHSEL_MS = 30_000;
 
