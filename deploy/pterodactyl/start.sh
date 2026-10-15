@@ -48,17 +48,72 @@ HEAP_MB=$(( MEM_MB * 60 / 100 ))
 export NODE_OPTIONS="--max-old-space-size=${HEAP_MB}"
 echo "==> Speicherlimit ${MEM_MB} MB, Node-Heap auf ${HEAP_MB} MB begrenzt"
 
+# --- Speicherplatz-Wartung ---------------------------------------------
+# Die Free-Tier-Container haben rund 2 GB. Der npm-Cache waechst ueber
+# Updates auf mehrere hundert MB und alte Staging-Bauten wiegen mit eigenem
+# node_modules. Ist die Platte voll, endet npm mit
+# "ENOSPC: no space left on device". Deshalb wird vor teueren Schritten
+# geprueft und nach einem Fehlschlag am vollen Speicher einmal aufgeraeumt
+# und wiederholt.
+NPM_CACHE="${npm_config_cache:-${HOME:-/home/container}/.npm}"
+
+free_mb() {
+  df -Pm "$1" 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+cleanup_space() {
+  local before after root
+  before="$(free_mb "$APP_DIR")"
+  rm -rf "$NPM_CACHE/_cacache" "$NPM_CACHE/_logs" "$NPM_CACHE/_tmp" \
+         "$APP_DIR/node_modules/.cache" 2>/dev/null || true
+  for root in "${TMPDIR:-/tmp}" "$(dirname "$APP_DIR")"; do
+    find "$root" -maxdepth 1 -name 'mdb-update-*' -exec rm -rf {} \; 2>/dev/null || true
+  done
+  after="$(free_mb "$APP_DIR")"
+  echo "==> Platte aufgeraeumt: ${before:-?} -> ${after:-?} MB frei"
+}
+
+ensure_space() {
+  local needed="$1" label="$2" free
+  free="$(free_mb "$APP_DIR")"
+  if [[ -n "$free" && "$free" -lt "$needed" ]]; then
+    echo "==> nur ${free} MB frei (< ${needed} MB), raeume vor ${label} auf"
+    cleanup_space
+  fi
+}
+
+# Fuehrt den Befehl mit laufender Ausgabe aus. Scheitert er mit ENOSPC, wird
+# einmal aufgeraeumt und wiederholt; alles andere kommt unveraendert zurueck.
+run_with_space_retry() {
+  local label="$1" status=0 log
+  shift
+  log="${TMPDIR:-/tmp}/mdb-cmd-$$.log"
+  "$@" 2>&1 | tee "$log" || status=$?
+  if [[ $status -eq 0 ]]; then rm -f "$log"; return 0; fi
+  if grep -qiE 'ENOSPC|no space left on device' "$log"; then
+    rm -f "$log"
+    echo "==> ${label} am vollen Speicher gescheitert: raeume auf und versuche erneut"
+    cleanup_space
+    "$@"
+    return $?
+  fi
+  rm -f "$log"
+  return $status
+}
+
 mkdir -p "$DATA_DIR"
 
 # --- Dependencies --------------------------------------------------------
 lock_hash="$(sha256sum package-lock.json | cut -d' ' -f1)"
 if [[ ! -d node_modules ]]; then
   echo "==> Erster Start: Dependencies werden installiert (kann 1-3 Minuten dauern)"
-  npm ci --no-audit --no-fund
+  ensure_space 300 "npm ci"
+  run_with_space_retry "npm ci" npm ci --no-audit --no-fund
   printf '%s' "$lock_hash" > "$LOCK_STAMP"
 elif [[ ! -f "$LOCK_STAMP" || "$(cat "$LOCK_STAMP")" != "$lock_hash" ]]; then
   echo "==> package-lock.json hat sich geaendert: Dependencies neu installieren"
-  npm ci --no-audit --no-fund
+  ensure_space 300 "npm ci"
+  run_with_space_retry "npm ci" npm ci --no-audit --no-fund
   printf '%s' "$lock_hash" > "$LOCK_STAMP"
 else
   echo "==> Dependencies passen, keine Neuinstallation"
@@ -67,7 +122,8 @@ fi
 # --- Build ---------------------------------------------------------------
 if [[ ! -f dist/index.js || src -nt dist ]]; then
   echo "==> TypeScript bauen"
-  npm run build
+  ensure_space 120 "Build"
+  run_with_space_retry "npm run build" npm run build
   # typescript & Co. werden zur Laufzeit nicht gebraucht. Auf 512-MB-Disk-
   # Containern ist jeder MB wert.
   npm prune --omit=dev --no-audit --no-fund || true

@@ -19,6 +19,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, statfsSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -31,7 +32,7 @@ const HOME = dirname(fileURLToPath(import.meta.url));
  *
  * Bei jeder inhaltlichen Aenderung hier hochzaehlen.
  */
-const BOOTSTRAP_BUILD = "2026-10-06a";
+const BOOTSTRAP_BUILD = "2026-10-15a";
 console.log(`[start] Bootstrap ${BOOTSTRAP_BUILD}`);
 
 /**
@@ -139,18 +140,102 @@ const SYNCED_FILE = join(STATE, ".synced-sha");
 /** Wie lange der neue Build nach einem Update Zeit bekommt, sich anzumelden. */
 const BOOT_GRACE_MS = 150_000;
 
+/** Freier Platz, den npm fuer node_modules und Cache braucht (~165 MB + Puffer). */
+const NEED_INSTALL_MB = 300;
+/** Freier Platz fuer den TypeScript-Build. */
+const NEED_BUILD_MB = 120;
+
+/** npm-Cache: dort landet "no space left on device", wenn die Platte voll ist. */
+const NPM_CACHE = process.env.npm_config_cache || process.env.NPM_CONFIG_CACHE || join(HOME, ".npm");
+
 /**
- * Freier Speicher auf der Platte, auf der der Bot liegt. Der Free-Tier-Host hat
- * rund 2 GB - `npm ci` in einem zweiten Verzeichnis hat da schon in
- * "no space left on device" gelaufen. Die Zahl steht jetzt im Log, damit das
- * nicht wieder überraschend auftritt.
+ * Freier Speicher in MB auf der Platte von `dir`. `statfsSync` ist auf manchen
+ * Hosts gesperrt - dann gibt es keinen Wert, und alle Folgefragen behandeln
+ * das als "unbekannt, besser nicht groessrig umbauen".
  */
-function logFreeSpace() {
+function freeMb(dir) {
   try {
-    const { bavail, bsize } = statfsSync(APP);
-    console.log(`[start] Freier Speicher: ${Math.round((bavail * bsize) / 1024 / 1024)} MB`);
+    const { bavail, bsize } = statfsSync(dir);
+    return Math.round((bavail * bsize) / 1024 / 1024);
   } catch {
-    /* Nicht jeder Host erlaubt die Abfrage - dann eben keine Ausgabe. */
+    return undefined;
+  }
+}
+
+function logFreeSpace() {
+  const free = freeMb(APP);
+  if (free !== undefined) console.log(`[start] Freier Speicher: ${free} MB`);
+}
+
+/**
+ * Räumt alles weg, was wiederbeschaffbar ist: den npm-Cache (die haeufigste
+ * Ursache fuer "no space left on device"), npm-Logs, `node_modules/.cache`
+ * und verlassene Staging-Bauten des Selbst-Updates mit eigenem
+ * node_modules. `dist.previous` bleibt liegen - der Rollback braucht es.
+ */
+function cleanupSpace() {
+  const before = freeMb(APP);
+  const targets = [
+    join(NPM_CACHE, "_cacache"),
+    join(NPM_CACHE, "_logs"),
+    join(NPM_CACHE, "_tmp"),
+    join(APP, "node_modules", ".cache"),
+  ];
+  for (const root of new Set([tmpdir(), HOME])) {
+    let entries;
+    try {
+      entries = readdirSync(root);
+    } catch {
+      continue; // Wurzel nicht lesbar - dann eben nicht dort aufraeumen.
+    }
+    for (const entry of entries) {
+      if (entry.startsWith("mdb-update-")) targets.push(join(root, entry));
+    }
+  }
+
+  let removed = 0;
+  for (const target of targets) {
+    if (!existsSync(target)) continue;
+    try {
+      rmSync(target, { recursive: true, force: true });
+      removed++;
+    } catch {
+      /* Eine Datei, die nicht wegwillt, soll den Start nicht blockieren. */
+    }
+  }
+  console.log(
+    `[start] Platte aufgeraeumt (${removed} Eintraege): ${before ?? "?"} -> ${freeMb(APP) ?? "?"} MB frei`,
+  );
+}
+
+/**
+ * Vor einem teuren Schritt pruefen: reicht der freie Platz? Unterhalb der
+ * Marke wird aufgeraeumt - der Aufruf kostet nichts, deshalb lieber einmal
+ * zu oft.
+ */
+function ensureSpace(neededMb, label) {
+  const free = freeMb(APP);
+  if (free === undefined || free >= neededMb) return;
+  console.warn(`[start] nur ${free} MB frei (< ${neededMb} MB), raeume vor ${label} auf`);
+  cleanupSpace();
+}
+
+/**
+ * Fuehrt einen Befehl aus und wiederholt ihn einmal, wenn die Platte voll
+ * ist. `stdio: inherit` liefert den npm-Text nicht im Fehlerobjekt - darum
+ * dient der freie Platz nach dem Fehlschlag als Merkmal fuer ENOSPC. Ist
+ * noch genug Platz frei, war der Fehler etwas anderes und wird geworfen.
+ * Der zweite Fehlschlag kommt unveraendert heraus.
+ */
+function runWithSpaceRetry(label, command, args) {
+  try {
+    run(APP, command, args);
+  } catch (err) {
+    const free = freeMb(APP);
+    if (free === undefined || free >= NEED_INSTALL_MB) throw err;
+    console.error(`[start] ${label} fehlgeschlagen und nur ${free} MB frei - raeume auf und versuche erneut`);
+    cleanupSpace();
+    run(APP, command, args);
   }
 }
 
@@ -325,14 +410,16 @@ if (needsBuild) {
     // Das Egg installiert vorher mit `npm install --production`, also ohne
     // Dev-Dependencies. TypeScript gehoert zu den Dev-Dependencies und waere
     // beim Build nicht vorhanden. Deshalb hier ausdruecklich mit.
-    run(APP, "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
+    ensureSpace(NEED_INSTALL_MB, "npm install");
+    runWithSpaceRetry("npm install", "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
     // Der Cache waechst sonst ueber die Updates auf mehrere hundert MB an und
     // war die haeufigste Ursache fuer "no space left on device".
     runSafe(APP, "npm", ["cache", "clean", "--force"]);
   } else {
     console.log("[start] node_modules passt zur package-lock.json, npm install entfällt");
   }
-  run(APP, "npm", ["run", "build"]);
+  ensureSpace(NEED_BUILD_MB, "Build");
+  runWithSpaceRetry("npm run build", "npm", ["run", "build"]);
 } else {
   console.log("[start] dist/ ist aktuell, starte ohne Build");
 }

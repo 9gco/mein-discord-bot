@@ -2,9 +2,17 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import {
+  BUILD_MARGIN_MB,
+  INSTALL_MARGIN_MB,
+  STAGING_MARGIN_MB,
+  cleanupDiskSpace,
+  ensureFreeSpace,
+  withSpaceRetry,
+} from "./diskSpace.js";
 import { logger } from "./logger.js";
 
 /**
@@ -199,7 +207,10 @@ async function installIfDependenciesChanged(settings: AutoUpdateSettings): Promi
     return;
   }
 
-  await run("npm", ["ci", "--include=dev", "--no-audit", "--no-fund"], { cwd: settings.appDir });
+  await ensureFreeSpace(settings.appDir, INSTALL_MARGIN_MB, "npm ci");
+  await withSpaceRetry("npm ci", settings.appDir, () =>
+    run("npm", ["ci", "--include=dev", "--no-audit", "--no-fund"], { cwd: settings.appDir }),
+  );
   if (hash) await writeState(marker, hash);
 
   // Bestmoeglich: ein Cache, der wieder gebraucht wird, wird naechstes Mal neu
@@ -244,7 +255,10 @@ async function buildInPlace(settings: AutoUpdateSettings, sha: string, prevSha: 
   await rename(dist, backup).catch(() => undefined);
 
   try {
-    await run("npm", ["run", "build"], { cwd: appDir });
+    await ensureFreeSpace(appDir, BUILD_MARGIN_MB, "Build");
+    await withSpaceRetry("npm run build", appDir, () =>
+      run("npm", ["run", "build"], { cwd: appDir }),
+    );
   } catch (err) {
     await rm(dist, { recursive: true, force: true });
     await rename(backup, dist).catch(() => undefined);
@@ -263,18 +277,39 @@ async function buildInPlace(settings: AutoUpdateSettings, sha: string, prevSha: 
 
 /**
  * Fallback ohne `.git` (etwa beim manuellen Hochladen eines Release-Archivs):
- * Klon nach /tmp, dort bauen und nur `dist/` zurueckkopieren. Teurer als der
+ * Klon nach HOME, dort bauen und nur `dist/` zurueckkopieren. Teurer als der
  * In-Place-Weg, aber ohne Checkout gibt es keine Quellen vor Ort.
+ *
+ * Gebaut wird bewusst nicht in /tmp: manche Images legen /tmp auf eine tmpfs,
+ * die nur aus dem Arbeitsspeicher des kleinen Containers gespeist wird. Dort
+ * endete `npm ci` mit "no space left on device", waehrend die Platte noch
+ * Platz hatte - Aufraeumen hilft dann nicht, der Ort muss wechseln.
  */
 async function buildViaStaging(settings: AutoUpdateSettings, sha: string): Promise<void> {
-  const staging = resolve(tmpdir(), `mdb-update-${sha.slice(0, 8)}`);
+  const base = homedir();
+  const staging = resolve(base, `mdb-update-${sha.slice(0, 8)}`);
   await rm(staging, { recursive: true, force: true });
 
   try {
     logger.info("Update: Repository holen", { sha, staging });
+    // Alte Staging-Klons und der npm-Cache weg, bevor hier ein zweites
+    // node_modules entsteht - auf der 2-GB-Platte entscheidet das.
+    await cleanupDiskSpace({ appDir: settings.appDir, keep: staging });
+    await ensureFreeSpace(base, STAGING_MARGIN_MB, "Staging-Build");
+
     await run("git", ["clone", "--depth", "1", "--single-branch", "--branch", settings.branch, settings.repo, staging]);
-    await run("npm", ["ci", "--no-audit", "--no-fund"], { cwd: staging });
-    await run("npm", ["run", "build"], { cwd: staging });
+    await withSpaceRetry(
+      "npm ci",
+      settings.appDir,
+      () => run("npm", ["ci", "--no-audit", "--no-fund"], { cwd: staging }),
+      { keep: staging },
+    );
+    await withSpaceRetry(
+      "npm run build",
+      settings.appDir,
+      () => run("npm", ["run", "build"], { cwd: staging }),
+      { keep: staging },
+    );
 
     const dist = resolve(settings.appDir, "dist");
     const backup = `${dist}.previous`;
