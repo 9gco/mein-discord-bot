@@ -32,7 +32,7 @@ const HOME = dirname(fileURLToPath(import.meta.url));
  *
  * Bei jeder inhaltlichen Aenderung hier hochzaehlen.
  */
-const BOOTSTRAP_BUILD = "2026-10-15a";
+const BOOTSTRAP_BUILD = "2026-10-15b";
 console.log(`[start] Bootstrap ${BOOTSTRAP_BUILD}`);
 
 /**
@@ -406,20 +406,46 @@ if (!needsBuild) {
 
 if (needsBuild) {
   console.log(`[start] ${reason}, baue jetzt`);
-  if (needsInstall(APP)) {
-    // Das Egg installiert vorher mit `npm install --production`, also ohne
-    // Dev-Dependencies. TypeScript gehoert zu den Dev-Dependencies und waere
-    // beim Build nicht vorhanden. Deshalb hier ausdruecklich mit.
-    ensureSpace(NEED_INSTALL_MB, "npm install");
-    runWithSpaceRetry("npm install", "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
-    // Der Cache waechst sonst ueber die Updates auf mehrere hundert MB an und
-    // war die haeufigste Ursache fuer "no space left on device".
-    runSafe(APP, "npm", ["cache", "clean", "--force"]);
+
+  if (!existsSync(join(APP, "tsconfig.json"))) {
+    // Ohne tsconfig.json gibt tsc nur seine Hilfe aus und bricht mit Status 1
+    // ab - das passiert bei manuellen Hochladungen, die den Quelltext
+    // unvollstaendig ueberspielt haben.
+    console.error("[start] tsconfig.json fehlt: Der Container hat keinen vollstaendigen Quelltext.");
+    console.error("[start] Reparatur in der Konsole des Panels:");
+    console.error(`[start]   cd ${APP}`);
+    console.error("[start]   git init");
+    console.error(`[start]   git remote add origin ${REPO}`);
+    console.error(`[start]   git fetch --depth 1 origin ${BRANCH}`);
+    console.error("[start]   git reset --hard FETCH_HEAD");
+    console.error("[start]   (ueberschreibt Dateien aus dem Repository; bot.env, data/ und dist/ bleiben erhalten)");
+
+    if (!existsSync(ENTRY)) {
+      console.error("[start] dist/ fehlt ebenfalls - ohne Quelltext gibt es nichts zu starten.");
+      process.exit(1);
+    }
+    console.error("[start] Starte trotzdem mit dem vorhandenen dist/.");
   } else {
-    console.log("[start] node_modules passt zur package-lock.json, npm install entfällt");
+    // Das Egg startet mit `npm install --production`, das TypeScript aus
+    // node_modules entfernt. Ein weltweiter tsc waere dann die einzige Wahl,
+    // und dessen Version passt weder zur package-lock.json noch zum
+    // tsconfig.json - deshalb fehlendes TypeScript als Installationsgrund zaehlen.
+    const missingTsc = !existsSync(join(APP, "node_modules", "typescript", "bin", "tsc"));
+    if (needsInstall(APP) || missingTsc) {
+      if (missingTsc) {
+        console.log("[start] TypeScript fehlt in node_modules (Egg installiert ohne Dev-Dependencies), installiere neu");
+      }
+      ensureSpace(NEED_INSTALL_MB, "npm install");
+      runWithSpaceRetry("npm install", "npm", ["install", "--include=dev", "--no-audit", "--no-fund"]);
+      // Der Cache waechst sonst ueber die Updates auf mehrere hundert MB an und
+      // war die haeufigste Ursache fuer "no space left on device".
+      runSafe(APP, "npm", ["cache", "clean", "--force"]);
+    } else {
+      console.log("[start] node_modules passt zur package-lock.json, npm install entfällt");
+    }
+    ensureSpace(NEED_BUILD_MB, "Build");
+    runWithSpaceRetry("npm run build", "npm", ["run", "build"]);
   }
-  ensureSpace(NEED_BUILD_MB, "Build");
-  runWithSpaceRetry("npm run build", "npm", ["run", "build"]);
 } else {
   console.log("[start] dist/ ist aktuell, starte ohne Build");
 }

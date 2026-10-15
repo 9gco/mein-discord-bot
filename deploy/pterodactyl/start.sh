@@ -121,12 +121,22 @@ fi
 
 # --- Build ---------------------------------------------------------------
 if [[ ! -f dist/index.js || src -nt dist ]]; then
-  echo "==> TypeScript bauen"
-  ensure_space 120 "Build"
-  run_with_space_retry "npm run build" npm run build
-  # typescript & Co. werden zur Laufzeit nicht gebraucht. Auf 512-MB-Disk-
-  # Containern ist jeder MB wert.
-  npm prune --omit=dev --no-audit --no-fund || true
+  if [[ ! -f tsconfig.json ]]; then
+    # Ohne tsconfig.json gibt tsc nur seine Hilfe aus und der Container-Flow
+    # stirbt mit `set -e`. Ein vorhandenes dist/ laeuft besser als gar nichts.
+    echo "==> tsconfig.json fehlt (unvollstaendiger Quelltext), ueberspringe den Build"
+    if [[ ! -f dist/index.js ]]; then
+      echo "!! Weder tsconfig.json noch dist/index.js vorhanden - Repository vollstaendig bereitstellen" >&2
+      exit 1
+    fi
+  else
+    echo "==> TypeScript bauen"
+    ensure_space 120 "Build"
+    run_with_space_retry "npm run build" npm run build
+    # typescript & Co. werden zur Laufzeit nicht gebraucht. Auf 512-MB-Disk-
+    # Containern ist jeder MB wert.
+    npm prune --omit=dev --no-audit --no-fund || true
+  fi
 else
   echo "==> dist/ ist aktuell"
 fi
