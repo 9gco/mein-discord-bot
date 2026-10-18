@@ -24,6 +24,10 @@ export interface BotConfig {
       publicUrl: string;
     };
   };
+  license: {
+    serverUrl: string;
+    adminToken: string;
+  };
 }
 
 function requireEnv(name: string): string {
@@ -69,6 +73,12 @@ function readConfig(): BotConfig {
               publicUrl: requireEnv("PUBLIC_URL").replace(/\/$/, ""),
             }
           : undefined,
+    },
+    license: {
+      serverUrl:
+        process.env["LICENSE_SERVER_URL"] ??
+        "https://vendettascanner.lucaswahliss.workers.dev",
+      adminToken: process.env["GAMMA_API_KEY"] ?? "",
     },
   };
 }
